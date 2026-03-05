@@ -1,12 +1,12 @@
-"""Shared test fixtures for agentscorer tests."""
+"""Shared test fixtures for agentgate tests."""
 
 from __future__ import annotations
 
 import pytest
 
-from agentscorer.adapters.mock import MockAdapter
-from agentscorer.config import ScanBudget, ScanConfig
-from agentscorer.models.agent import AgentConfig
+from agentgate.adapters.mock import MockAdapter
+from agentgate.config import ScanBudget, ScanConfig
+from agentgate.models.agent import AgentConfig
 
 
 @pytest.fixture

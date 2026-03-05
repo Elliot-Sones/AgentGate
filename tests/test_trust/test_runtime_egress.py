@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from agentscorer.trust.checks.runtime_egress import RuntimeEgressCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
-from agentscorer.trust.models import TrustSeverity
-from agentscorer.trust.runtime.trace_collector import RuntimeTrace
+from agentgate.trust.checks.runtime_egress import RuntimeEgressCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
+from agentgate.trust.models import TrustSeverity
+from agentgate.trust.runtime.trace_collector import RuntimeTrace
 
 
 def _config(tmp_path: Path, **overrides) -> TrustScanConfig:
@@ -129,7 +129,7 @@ async def test_egress_allows_procfs_ip_when_declared_domain_resolves(tmp_path: P
         inspect_network_mode="bridge",
     )
 
-    from agentscorer.trust.checks import runtime_egress as re_mod
+    from agentgate.trust.checks import runtime_egress as re_mod
 
     re_mod._resolve_domain_ips.cache_clear()
     original = re_mod._resolve_domain_ips

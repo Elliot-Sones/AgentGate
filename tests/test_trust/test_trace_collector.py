@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentscorer.trust.runtime.trace_collector import TraceCollector
+from agentgate.trust.runtime.trace_collector import TraceCollector
 
 
 @pytest.fixture

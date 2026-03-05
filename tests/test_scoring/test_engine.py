@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agentscorer.models.result import EvaluationMethod, TestResult
-from agentscorer.models.score import DetectorSummary, LetterGrade, ScoreCard
-from agentscorer.scoring.engine import ScoringEngine
+from agentgate.models.result import EvaluationMethod, TestResult
+from agentgate.models.score import DetectorSummary, LetterGrade, ScoreCard
+from agentgate.scoring.engine import ScoringEngine
 
 
 def _make_results(

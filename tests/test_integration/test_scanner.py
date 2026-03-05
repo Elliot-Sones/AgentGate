@@ -6,14 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentscorer.adapters.base import AdapterResponse
-from agentscorer.adapters.mock import MockAdapter
-from agentscorer.config import ScanBudget, ScanConfig
-from agentscorer.models.agent import AgentConfig
-from agentscorer.models.result import EvaluationMethod, TestResult
-from agentscorer.models.score import LetterGrade
-from agentscorer.models.test_case import AttackVector, TestCase
-from agentscorer.scanner import ProbeError, Scanner
+from agentgate.adapters.base import AdapterResponse
+from agentgate.adapters.mock import MockAdapter
+from agentgate.config import ScanBudget, ScanConfig
+from agentgate.models.agent import AgentConfig
+from agentgate.models.result import EvaluationMethod, TestResult
+from agentgate.models.score import LetterGrade
+from agentgate.models.test_case import AttackVector, TestCase
+from agentgate.scanner import ProbeError, Scanner
 
 
 @pytest.fixture
@@ -209,7 +209,7 @@ async def test_judge_triggers_on_low_confidence() -> None:
 
     # Mock the LLMJudge.evaluate to avoid real API calls
     with patch(
-        "agentscorer.detectors.base.LLMJudge"
+        "agentgate.detectors.base.LLMJudge"
     ) as MockJudge:
         mock_instance = MockJudge.return_value
         mock_instance.evaluate = AsyncMock(
@@ -261,7 +261,7 @@ async def test_judge_mode_sends_all_results_to_judge() -> None:
         ),
     )
 
-    with patch("agentscorer.detectors.base.LLMJudge") as MockJudge:
+    with patch("agentgate.detectors.base.LLMJudge") as MockJudge:
         mock_instance = MockJudge.return_value
         mock_instance.evaluate = AsyncMock(
             return_value=(True, 0.95, "Judge confirms pass")
@@ -334,7 +334,7 @@ async def test_judge_handles_exception_gracefully() -> None:
     )
 
     with patch(
-        "agentscorer.detectors.base.LLMJudge"
+        "agentgate.detectors.base.LLMJudge"
     ) as MockJudge:
         mock_instance = MockJudge.return_value
         mock_instance.evaluate = AsyncMock(
@@ -528,7 +528,7 @@ async def test_adaptive_attacker_runs_pair_loop() -> None:
         MagicMock(content=[MagicMock(text='{"payload": "refined hack", "reasoning": "still testing", "success": false}')]),
     ]
 
-    with patch("agentscorer.attacker.adaptive.anthropic.Anthropic") as MockAnthropicCls:
+    with patch("agentgate.attacker.adaptive.anthropic.Anthropic") as MockAnthropicCls:
         mock_client = MockAnthropicCls.return_value
         mock_client.messages.create = MagicMock(side_effect=mock_responses)
 
@@ -627,7 +627,7 @@ async def test_attacker_routes_tests_to_correct_detectors() -> None:
     )
 
     with patch(
-        "agentscorer.scanner.AttackerAgent"
+        "agentgate.scanner.AttackerAgent"
     ) as MockAttacker:
         mock_instance = MockAttacker.return_value
         mock_instance.generate_tests = AsyncMock(return_value=mock_test_cases)

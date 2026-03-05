@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from agentscorer.trust.checks.static_manifest import StaticManifestCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
+from agentgate.trust.checks.static_manifest import StaticManifestCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
 
 
 @pytest.mark.asyncio

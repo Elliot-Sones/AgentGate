@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from agentscorer.trust.checks.base import BaseTrustCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
-from agentscorer.trust.models import TrustCategory, TrustFinding, TrustSeverity, TrustVerdict
-from agentscorer.trust.scanner import TrustScanner
+from agentgate.trust.checks.base import BaseTrustCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
+from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity, TrustVerdict
+from agentgate.trust.scanner import TrustScanner
 
 
 class PassingCheck(BaseTrustCheck):

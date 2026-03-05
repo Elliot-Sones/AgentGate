@@ -5,9 +5,9 @@ from __future__ import annotations
 from unittest.mock import patch
 from click.testing import CliRunner
 
-from agentscorer.cli import cli
-from agentscorer.models.score import DetectorSummary, LetterGrade, ScoreCard
-from agentscorer.scanner import ScanResult
+from agentgate.cli import cli
+from agentgate.models.score import DetectorSummary, LetterGrade, ScoreCard
+from agentgate.scanner import ScanResult
 
 
 def _make_scan_result(pass_rate: float) -> ScanResult:
@@ -51,7 +51,7 @@ class TestFailBelow:
         runner = CliRunner()
         mock_result = _make_scan_result(0.8)
 
-        with patch("agentscorer.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
+        with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
                 ["scan", "http://test:8000", "--fail-below", "0.9", "--quiet", "--format", "terminal"],
@@ -62,7 +62,7 @@ class TestFailBelow:
         runner = CliRunner()
         mock_result = _make_scan_result(0.95)
 
-        with patch("agentscorer.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
+        with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
                 ["scan", "http://test:8000", "--fail-below", "0.9", "--quiet", "--format", "terminal"],
@@ -73,7 +73,7 @@ class TestFailBelow:
         runner = CliRunner()
         mock_result = _make_scan_result(0.5)
 
-        with patch("agentscorer.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
+        with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
                 ["scan", "http://test:8000", "--quiet", "--format", "terminal"],
@@ -86,10 +86,10 @@ class TestQuietMode:
         runner = CliRunner()
         mock_result = _make_scan_result(1.0)
 
-        with patch("agentscorer.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
+        with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
                 ["scan", "http://test:8000", "--quiet", "--format", "terminal"],
             )
         # In quiet mode with terminal format, no terminal output should be rendered
-        assert "AgentScorer" not in result.output
+        assert "AgentGate" not in result.output

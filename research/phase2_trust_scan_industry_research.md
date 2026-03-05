@@ -1,7 +1,7 @@
 # Phase 2 Trust Scan Research (Marketplace Malware Analysis)
 
 ## Why Phase 2 Exists
-Phase 1 (`agentscorer scan`) answers: "Can a user break this agent?"
+Phase 1 (`agentgate scan`) answers: "Can a user break this agent?"
 
 Phase 2 answers a different marketplace question: "Is this submitted agent trustworthy at all?"
 
@@ -75,7 +75,7 @@ This matches a trust-gate model better than a one-shot benchmark model.
 
 ## Recommended 90-Day Rollout
 ### Weeks 1-3: Foundation
-- Add `trust-scan` mode/command in current `agentscorer` codebase.
+- Add `trust-scan` mode/command in current `agentgate` codebase.
 - Ship static checks and supply-chain verification.
 - Output structured findings with severity and evidence.
 
@@ -94,7 +94,7 @@ This matches a trust-gate model better than a one-shot benchmark model.
 - Move to staged enforcement: block on critical findings; review on high.
 - Publish clear developer-facing trust requirements.
 
-## Integration Guidance for Current AgentScorer
+## Integration Guidance for Current AgentGate
 To minimize rework, build Phase 2 as a sibling pipeline rather than a rewrite:
 
 - Keep Phase 1 detectors for user-facing robustness.

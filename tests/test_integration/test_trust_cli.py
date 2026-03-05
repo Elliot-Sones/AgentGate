@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from agentscorer.cli import cli
-from agentscorer.trust.models import (
+from agentgate.cli import cli
+from agentgate.trust.models import (
     TrustCategory,
     TrustFinding,
     TrustScanResult,
@@ -55,7 +55,7 @@ def test_trust_scan_exit_code_1_when_threshold_met() -> None:
         coro.close()
         return mock_result
 
-    with patch("agentscorer.cli.asyncio.run", side_effect=_run_stub):
+    with patch("agentgate.cli.asyncio.run", side_effect=_run_stub):
         result = runner.invoke(
             cli,
             [
@@ -80,7 +80,7 @@ def test_trust_scan_exit_code_0_when_below_threshold() -> None:
         coro.close()
         return mock_result
 
-    with patch("agentscorer.cli.asyncio.run", side_effect=_run_stub):
+    with patch("agentgate.cli.asyncio.run", side_effect=_run_stub):
         result = runner.invoke(
             cli,
             [

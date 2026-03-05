@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from agentscorer.trust.models import TrustCategory, TrustFinding, TrustSeverity, TrustVerdict
-from agentscorer.trust.policy import TrustPolicy
+from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity, TrustVerdict
+from agentgate.trust.policy import TrustPolicy
 
 
 def _finding(severity: TrustSeverity, passed: bool = False) -> TrustFinding:

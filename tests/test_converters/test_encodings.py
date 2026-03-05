@@ -6,8 +6,8 @@ import base64
 
 import pytest
 
-from agentscorer.converters import get_converters
-from agentscorer.converters.encodings import (
+from agentgate.converters import get_converters
+from agentgate.converters.encodings import (
     Base64Converter,
     CharSplitConverter,
     MarkdownEscapeConverter,

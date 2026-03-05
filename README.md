@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1>AgentScorer</h1>
+<h1>AgentGate</h1>
 
 <p><strong>Trust verification for AI agents before they reach production.</strong></p>
 
@@ -11,7 +11,7 @@
 </p>
 
 <p>
-  AgentScorer is a security scanner built for AI agent marketplaces.<br>
+  AgentGate is a security scanner built for AI agent marketplaces.<br>
   It inspects agent code, runs it in a locked-down sandbox, monitors behavior at the kernel level,<br>
   and returns a clear verdict — <strong>ALLOW</strong> or <strong>BLOCK</strong> — with evidence.
 </p>
@@ -21,7 +21,7 @@
 ```
   Agent Submission                                ALLOW  ✓
   ───────────────►  ┌─────────────────┐  ───────────────►  Published
-                    │   AgentScorer   │
+                    │   AgentGate   │
   Source Code       │                 │
   Docker Image      │  Static         │   BLOCK  ✗
   Trust Manifest    │  Sandbox        │  ───────────────►  Rejected
@@ -51,7 +51,7 @@ cd demo_agents && ./run_demo.sh
 **3. Scan your own agent**
 
 ```bash
-agentscorer trust-scan \
+agentgate trust-scan \
   --image my-agent:latest \
   --source-dir ./my-agent-src \
   --manifest ./my-agent-src/trust_manifest.yaml \
@@ -70,13 +70,13 @@ Agent marketplaces let third-party developers publish AI agents that interact wi
 - **Lie about what it does** — declare three tools in its manifest but secretly use five
 - **Act differently when watched** — behave perfectly in review, then turn malicious in production
 
-Log-based scanners can't catch agents that hide their logs. AgentScorer reads directly from the operating system kernel — it catches connections even when the agent covers its tracks.
+Log-based scanners can't catch agents that hide their logs. AgentGate reads directly from the operating system kernel — it catches connections even when the agent covers its tracks.
 
 ---
 
 ## :mag: How It Works
 
-AgentScorer runs four layers of analysis on every submission:
+AgentGate runs four layers of analysis on every submission:
 
 ### 1. Static Analysis
 
@@ -97,13 +97,13 @@ Then compares what happened. A trustworthy agent behaves the same in both. A mal
 
 ### 3. Kernel-Level Detection
 
-While the agent runs, AgentScorer reads `/proc/net/tcp` directly from the container's kernel. This is the key differentiator:
+While the agent runs, AgentGate reads `/proc/net/tcp` directly from the container's kernel. This is the key differentiator:
 
 - Traditional scanners parse application logs — if the agent suppresses `stdout`/`stderr`, those scanners see nothing
-- AgentScorer reads the operating system's socket table, which the agent **cannot** hide from
+- AgentGate reads the operating system's socket table, which the agent **cannot** hide from
 - Every TCP connection is captured regardless of what the agent does to its own logs
 
-AgentScorer also seeds fake credentials (canary tokens) into the environment. If the agent touches or exfiltrates them, it's caught.
+AgentGate also seeds fake credentials (canary tokens) into the environment. If the agent touches or exfiltrates them, it's caught.
 
 ### 4. Automatic Verdict
 
@@ -143,7 +143,7 @@ The repo includes three demo agents that demonstrate different security outcomes
 | :x: | **Trojanized Support Agent** | Looks like a support bot but secretly exfiltrates data. | `BLOCK` |
 | :x: | **Stealth Exfil Agent** | Exfiltrates data *and* suppresses all logs to hide it. | `BLOCK` |
 
-> **The stealth agent is the differentiator.** It redirects `stdout` and `stderr` to `/dev/null` — log-based scanners would see a perfectly quiet, well-behaved agent. AgentScorer catches it anyway by reading `/proc/net/tcp` at the kernel level.
+> **The stealth agent is the differentiator.** It redirects `stdout` and `stderr` to `/dev/null` — log-based scanners would see a perfectly quiet, well-behaved agent. AgentGate catches it anyway by reading `/proc/net/tcp` at the kernel level.
 
 Reports (HTML, JSON, SARIF) are saved to `demo_output/`.
 
@@ -151,7 +151,7 @@ Reports (HTML, JSON, SARIF) are saved to `demo_output/`.
 
 ## :page_facing_up: Trust Manifest
 
-Every agent submission needs a `trust_manifest.yaml` declaring what the agent does. AgentScorer compares declarations against actual runtime behavior.
+Every agent submission needs a `trust_manifest.yaml` declaring what the agent does. AgentGate compares declarations against actual runtime behavior.
 
 ```yaml
 submission_id: my-agent-v1
@@ -179,7 +179,7 @@ permissions:
 Add a trust scan gate to your pipeline:
 
 ```bash
-agentscorer trust-scan \
+agentgate trust-scan \
   --image $AGENT_IMAGE \
   --source-dir ./src \
   --manifest ./trust_manifest.yaml \
@@ -201,10 +201,10 @@ The `--fail-on` flag sets the verdict threshold. If the scan produces a verdict 
 
 ## :crossed_swords: Red Team Testing
 
-AgentScorer also includes a `scan` command for adversarial prompt-injection testing against live agents. This tests how well an agent **resists manipulation** rather than whether the agent itself is malicious.
+AgentGate also includes a `scan` command for adversarial prompt-injection testing against live agents. This tests how well an agent **resists manipulation** rather than whether the agent itself is malicious.
 
 ```bash
-agentscorer scan http://localhost:8000/api \
+agentgate scan http://localhost:8000/api \
   --name "My Agent" \
   --budget 500 \
   --format all
@@ -212,7 +212,7 @@ agentscorer scan http://localhost:8000/api \
 
 Throws ~130 attack payloads across 12 categories (prompt injection, data exfiltration, tool misuse, goal hijacking, and more), grades each response, and generates a scorecard. Optional features include LLM-generated attacks tailored to your agent, multi-turn adaptive strategies (PAIR, Crescendo, TAP), and payload obfuscation.
 
-Run `agentscorer scan --help` for all options.
+Run `agentgate scan --help` for all options.
 
 ---
 

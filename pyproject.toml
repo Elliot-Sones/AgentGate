@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentscorer"
+name = "agentgate"
 version = "2.0.0"
 description = "Autonomous AI Agent Stress-Tester"
 requires-python = ">=3.11"
@@ -30,13 +30,13 @@ dev = [
 ]
 
 [project.scripts]
-agentscorer = "agentscorer.cli:cli"
+agentgate = "agentgate.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-agentscorer = ["datasets/*.yaml", "trust/runtime/seccomp_default.json"]
+agentgate = ["datasets/*.yaml", "trust/runtime/seccomp_default.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -6,11 +6,11 @@ Research date: 2026-03-03
 
 ## Executive Summary
 
-We analyzed 11 tools/frameworks in the AI security testing space. The key insight: **the market has evolved far beyond prompt fuzzing**. Leading tools now test tool-calling abuse, multi-turn adaptive attacks, memory poisoning, cross-session leaks, and indirect injection through RAG/external content. AgentScorer currently only does single-turn prompt testing with keyword matching — the most basic tier of what competitors offer.
+We analyzed 11 tools/frameworks in the AI security testing space. The key insight: **the market has evolved far beyond prompt fuzzing**. Leading tools now test tool-calling abuse, multi-turn adaptive attacks, memory poisoning, cross-session leaks, and indirect injection through RAG/external content. AgentGate currently only does single-turn prompt testing with keyword matching — the most basic tier of what competitors offer.
 
-### Where AgentScorer Stands
+### Where AgentGate Stands
 
-| Capability | AgentScorer | PyRIT | Promptfoo | Giskard | AgentDojo |
+| Capability | AgentGate | PyRIT | Promptfoo | Giskard | AgentDojo |
 |---|---|---|---|---|---|
 | Single-turn prompt attacks | Yes | Yes | Yes | Yes | Yes |
 | Multi-turn adaptive attacks | No | Yes (Crescendo, TAP, PAIR) | Yes (Crescendo, GOAT, Hydra) | Yes (Crescendo, Skeleton Key, GOAT) | No |
@@ -287,7 +287,7 @@ GPT-4o: 69% benign utility → 45% under attack. No current defense eliminates t
 
 Our current coverage:
 
-| ID | Category | AgentScorer Coverage |
+| ID | Category | AgentGate Coverage |
 |----|----------|---------------------|
 | LLM01 | Prompt Injection | Yes (basic) |
 | LLM02 | Sensitive Information Disclosure | Partial (system_prompt_leak) |
@@ -346,13 +346,13 @@ Our current coverage:
 ## Key Patterns Across All Tools
 
 ### 1. Multi-Turn is Table Stakes
-Every serious tool supports multi-turn adaptive attacks. The most effective strategies (Crescendo, GOAT, Hydra) achieve 70-90% ASR vs 20-30% for static single-turn. AgentScorer is single-turn only.
+Every serious tool supports multi-turn adaptive attacks. The most effective strategies (Crescendo, GOAT, Hydra) achieve 70-90% ASR vs 20-30% for static single-turn. AgentGate is single-turn only.
 
 ### 2. LLM-as-Judge is Standard
 Every tool except AgentDojo and LLM Guard uses LLM-as-judge for evaluation. Keyword matching is considered the weakest possible evaluation.
 
 ### 3. Prompt Encoding/Obfuscation is Expected
-PyRIT has 61 converters. Promptfoo has ~20 static strategies. AgentScorer sends raw plaintext prompts.
+PyRIT has 61 converters. Promptfoo has ~20 static strategies. AgentGate sends raw plaintext prompts.
 
 ### 4. Tool/Function Call Testing is the New Frontier
 Testing what an agent DOES (which tools it calls, with what parameters) is fundamentally different from testing what it SAYS. AgentDojo, Promptfoo, and Giskard Hub all test this. We don't.
@@ -365,7 +365,7 @@ Giskard generates attacks tailored to the agent's domain. Promptfoo uses the `pu
 
 ---
 
-## What This Means for AgentScorer
+## What This Means for AgentGate
 
 ### Critical Gaps (Must Address)
 

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from agentscorer.adapters.base import AdapterResponse
-from agentscorer.adapters.mock import MockAdapter
-from agentscorer.config import ScanConfig
-from agentscorer.detectors.prompt_injection import PromptInjectionDetector
-from agentscorer.models.agent import AgentConfig
-from agentscorer.models.test_case import AttackVector, TestCase
+from agentgate.adapters.base import AdapterResponse
+from agentgate.adapters.mock import MockAdapter
+from agentgate.config import ScanConfig
+from agentgate.detectors.prompt_injection import PromptInjectionDetector
+from agentgate.models.agent import AgentConfig
+from agentgate.models.test_case import AttackVector, TestCase
 
 
 async def test_detects_vulnerable_agent(

@@ -7,8 +7,8 @@ import json
 import httpx
 import pytest
 
-from agentscorer.adapters.openai_chat import OpenAIChatAdapter
-from agentscorer.models.agent import AgentConfig
+from agentgate.adapters.openai_chat import OpenAIChatAdapter
+from agentgate.models.agent import AgentConfig
 
 
 @pytest.fixture

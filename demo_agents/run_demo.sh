@@ -4,7 +4,7 @@
 #
 # Usage:  ./run_demo.sh
 #
-# Requires: docker, agentscorer (pip install -e .)
+# Requires: docker, agentgate (pip install -e .)
 
 set -euo pipefail
 
@@ -43,11 +43,11 @@ fi
 
 echo -e "${GREEN}✓ Docker is available${NC}"
 
-if ! command -v agentscorer &>/dev/null; then
-    echo -e "${YELLOW}agentscorer CLI not found — installing in dev mode...${NC}"
+if ! command -v agentgate &>/dev/null; then
+    echo -e "${YELLOW}agentgate CLI not found — installing in dev mode...${NC}"
     pip install -e "$PROJECT_DIR" --quiet
 fi
-echo -e "${GREEN}✓ agentscorer CLI is available${NC}"
+echo -e "${GREEN}✓ agentgate CLI is available${NC}"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -72,7 +72,7 @@ echo "All images built successfully."
 # ─── Scan 1: Clean Agent ────────────────────────────────────────────────────
 banner "SCAN 1: CLEAN SUPPORT AGENT (expected: ALLOW)"
 
-agentscorer trust-scan \
+agentgate trust-scan \
     --image demo-clean-agent:latest \
     --source-dir "$SCRIPT_DIR/clean_support_agent" \
     --manifest "$SCRIPT_DIR/clean_support_agent/trust_manifest.yaml" \
@@ -89,7 +89,7 @@ echo -e "${GREEN}───── Clean agent scan complete ─────${NC}"
 # ─── Scan 2: Trojanized Agent ──────────────────────────────────────────────
 banner "SCAN 2: TROJANIZED SUPPORT AGENT (expected: BLOCK)"
 
-agentscorer trust-scan \
+agentgate trust-scan \
     --image demo-trojanized-agent:latest \
     --source-dir "$SCRIPT_DIR/trojanized_support_agent" \
     --manifest "$SCRIPT_DIR/trojanized_support_agent/trust_manifest.yaml" \
@@ -106,7 +106,7 @@ echo -e "${RED}───── Trojanized agent scan complete ─────${N
 # ─── Scan 3: Stealth Exfil Agent ───────────────────────────────────────────
 banner "SCAN 3: STEALTH EXFIL AGENT (expected: BLOCK)"
 
-agentscorer trust-scan \
+agentgate trust-scan \
     --image demo-stealth-agent:latest \
     --source-dir "$SCRIPT_DIR/stealth_exfil_agent" \
     --manifest "$SCRIPT_DIR/stealth_exfil_agent/trust_manifest.yaml" \

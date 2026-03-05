@@ -5,11 +5,11 @@ from unittest.mock import patch
 
 import pytest
 
-from agentscorer.trust.checks.runtime_sandbox import RuntimeSandboxCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
-from agentscorer.trust.models import TrustSeverity
-from agentscorer.trust.runtime.trace_collector import RuntimeTrace
+from agentgate.trust.checks.runtime_sandbox import RuntimeSandboxCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
+from agentgate.trust.models import TrustSeverity
+from agentgate.trust.runtime.trace_collector import RuntimeTrace
 
 
 def _config(tmp_path: Path, **overrides) -> TrustScanConfig:
@@ -40,7 +40,7 @@ async def test_sandbox_image_inspect_fails(tmp_path: Path) -> None:
     ctx = TrustScanContext(config=cfg)
     check = RuntimeSandboxCheck()
     with patch(
-        "agentscorer.trust.checks.runtime_sandbox.DockerRunner.inspect_image",
+        "agentgate.trust.checks.runtime_sandbox.DockerRunner.inspect_image",
         return_value=(False, "image not found"),
     ):
         findings = await check.run(ctx)
@@ -64,10 +64,10 @@ async def test_sandbox_successful_run(tmp_path: Path) -> None:
 
     check = RuntimeSandboxCheck()
     with patch(
-        "agentscorer.trust.checks.runtime_sandbox.DockerRunner.inspect_image",
+        "agentgate.trust.checks.runtime_sandbox.DockerRunner.inspect_image",
         return_value=(True, ""),
     ), patch(
-        "agentscorer.trust.checks.runtime_sandbox.DockerRunner.run_profile",
+        "agentgate.trust.checks.runtime_sandbox.DockerRunner.run_profile",
         return_value=mock_trace,
     ):
         findings = await check.run(ctx)

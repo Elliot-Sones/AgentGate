@@ -1,8 +1,8 @@
-# AgentScorer -- Codebase Reference
+# AgentGate -- Codebase Reference
 
 ## Research
 
-- `research/competitive_analysis.md` -- Competitive analysis of 11 AI security testing tools (PyRIT, Promptfoo, Giskard, AgentDojo, OWASP Top 10, HouYi, Vigil, Rebuff, LLM Guard, NeMo Guardrails, Lakera). Includes gap analysis vs AgentScorer.
+- `research/competitive_analysis.md` -- Competitive analysis of 11 AI security testing tools (PyRIT, Promptfoo, Giskard, AgentDojo, OWASP Top 10, HouYi, Vigil, Rebuff, LLM Guard, NeMo Guardrails, Lakera). Includes gap analysis vs AgentGate.
 - `research/agent_security_testing.md` -- Comprehensive research on AI agent security testing. Covers OWASP LLM Top 10 (2025), OWASP Agentic Top 10 (2026), tool/function call security (ToolHijacker, STAC), indirect prompt injection (Greshake, HouYi, InjecAgent), API-level security (BOLA, BFLA, SSRF), memory/state attacks (MemoryGraft, MINJA, InjecMEM, AgentPoison), embedding inversion (Vec2Text), MAS hijacking (97% ASR on Magentic-One), supply chain (MCP tool poisoning, tool shadowing, CVE-2025-6514), rate limiting & resource exhaustion, SentinelAgent defense architectures, 28+ cited papers with arXiv links, 20+ GitHub repos/tools.
 - `research/multi_turn_attacks.md` -- Crescendo, GOAT, PAIR, TAP, Hydra, Skeleton Key, CCA, FlipAttack, Many-Shot Jailbreaking, ActorAttack, Tempest/Siege, LATS, attention shifting. ASR comparison table. Implementation architecture.
 - `research/adversarial_agent_systems.md` -- Agent-vs-agent paradigm, PyRIT/Promptfoo/Giskard/GOAT/Lakera implementations, attacker agent architecture, memory exploitation (MemoryGraft/MINJA/InjecMEM), multi-agent attacks, MCP tool poisoning, ideal attacker design.
@@ -15,7 +15,7 @@
 - **Pydantic v2** -- all models (AgentConfig, TestCase, TestResult, ScoreCard, DetectorSummary, FailedTest, etc.)
 - **anthropic SDK** -- LLMJudge (evaluation) and AttackerAgent (test generation)
 - **httpx** -- HTTPAdapter for communicating with target agents
-- **Click** -- CLI interface (`agentscorer scan`, `agentscorer list-detectors`)
+- **Click** -- CLI interface (`agentgate scan`, `agentgate list-detectors`)
 - **Rich** -- terminal report rendering (tables, panels, colored output)
 - **FastAPI + Uvicorn** -- test agent server (optional dependency under `[test-agent]`)
 - **pytest + pytest-asyncio** -- test framework (asyncio_mode = "auto")
@@ -23,13 +23,13 @@
 - **setuptools + wheel** -- build system
 
 Package version: `2.0.0`
-Entry point: `agentscorer = agentscorer.cli:cli`
+Entry point: `agentgate = agentgate.cli:cli`
 
 ---
 
 ## Project Structure
 
-### src/agentscorer/ (top-level)
+### src/agentgate/ (top-level)
 
 #### `__init__.py`
 - One-line: Package marker, exports `__version__ = "2.0.0"`.
@@ -62,8 +62,8 @@ Entry point: `agentscorer = agentscorer.cli:cli`
   - `Scanner.run()` -- async; probes endpoint, generates attacker tests, runs all detectors in parallel via `asyncio.gather()`, scores results
 
 #### `__main__.py`
-- One-line: Enables `python -m agentscorer` invocation.
-- Key exports: none (runs `cli()` from `agentscorer.cli`)
+- One-line: Enables `python -m agentgate` invocation.
+- Key exports: none (runs `cli()` from `agentgate.cli`)
 
 #### `api.py`
 - One-line: Prompt Shop integration API for single-call agent scanning with publishability verdicts.
@@ -90,7 +90,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/models/
+### src/agentgate/models/
 
 #### `__init__.py`
 - One-line: Re-exports all model classes.
@@ -127,7 +127,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/adapters/
+### src/agentgate/adapters/
 
 #### `__init__.py`
 - One-line: Re-exports adapter classes.
@@ -176,7 +176,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/detectors/
+### src/agentgate/detectors/
 
 #### `__init__.py`
 - One-line: Detector registry and convenience functions.
@@ -270,7 +270,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/datasets/
+### src/agentgate/datasets/
 
 #### `__init__.py`
 - One-line: YAML dataset loader for attack payloads.
@@ -283,7 +283,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/evaluation/
+### src/agentgate/evaluation/
 
 #### `__init__.py`
 - One-line: Re-exports evaluation classes.
@@ -316,7 +316,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/converters/
+### src/agentgate/converters/
 
 #### `__init__.py`
 - One-line: Re-exports converter classes and registry.
@@ -343,7 +343,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/attacker/
+### src/agentgate/attacker/
 
 #### `__init__.py`
 - One-line: Re-exports AttackerAgent.
@@ -382,7 +382,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
   - `AdaptiveAttacker.attack(adapter, objective, attack_vector, agent_description, max_turns)` -- PAIR loop: generate payload via Claude → send to target → feed response back → refine → repeat until success or budget exhausted
   - `_parse_attacker_response(text)` -- extracts JSON `{payload, reasoning, success}` from Claude response
 
-### src/agentscorer/attacker/strategies/
+### src/agentgate/attacker/strategies/
 
 #### `__init__.py`
 - One-line: Strategy registry mapping names to strategy classes.
@@ -410,7 +410,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/scoring/
+### src/agentgate/scoring/
 
 #### `__init__.py`
 - One-line: Re-exports ScoringEngine.
@@ -426,7 +426,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/reports/
+### src/agentgate/reports/
 
 #### `__init__.py`
 - One-line: Re-exports report classes.
@@ -484,7 +484,7 @@ Entry point: `agentscorer = agentscorer.cli:cli`
 
 ---
 
-### src/agentscorer/trust/
+### src/agentgate/trust/
 
 #### `__init__.py`
 - One-line: Re-exports Phase 2 trust scan config, scanner, models, and verdict enums.
@@ -874,25 +874,25 @@ class AdapterResponse:
 
 | Question | Answer |
 |----------|--------|
-| Where are the attack payloads? | `src/agentscorer/attacker/payloads.py` |
-| Where is scoring logic? | `src/agentscorer/scoring/engine.py` |
-| Where are PII/injection regex patterns? | `src/agentscorer/evaluation/heuristic.py` (standalone evaluator) and each detector's `evaluate()` method (inline patterns) |
-| Where are the Pydantic models? | `src/agentscorer/models/` (agent.py, test_case.py, result.py, score.py) |
-| Where is the detector registry? | `src/agentscorer/detectors/__init__.py` (`DETECTOR_REGISTRY` dict) |
+| Where are the attack payloads? | `src/agentgate/attacker/payloads.py` |
+| Where is scoring logic? | `src/agentgate/scoring/engine.py` |
+| Where are PII/injection regex patterns? | `src/agentgate/evaluation/heuristic.py` (standalone evaluator) and each detector's `evaluate()` method (inline patterns) |
+| Where are the Pydantic models? | `src/agentgate/models/` (agent.py, test_case.py, result.py, score.py) |
+| Where is the detector registry? | `src/agentgate/detectors/__init__.py` (`DETECTOR_REGISTRY` dict) |
 | Where are test fixtures? | `tests/conftest.py` |
-| Where are the mock adapter rules? | `src/agentscorer/adapters/mock.py` (`vulnerable()` and `hardened()` classmethods) |
-| Where is the CLI defined? | `src/agentscorer/cli.py` |
+| Where are the mock adapter rules? | `src/agentgate/adapters/mock.py` (`vulnerable()` and `hardened()` classmethods) |
+| Where is the CLI defined? | `src/agentgate/cli.py` |
 | Where is the test agent? | `test_agents/insights/agent.py` (agent logic) and `test_agents/insights/server.py` (FastAPI server) |
 
 ### How to Add a New Detector
 
-1. Create `src/agentscorer/detectors/your_detector.py`
+1. Create `src/agentgate/detectors/your_detector.py`
 2. Define a class that extends `BaseDetector`
 3. Implement `generate(agent_config) -> list[TestCase]` -- create test cases from payloads
 4. Implement `evaluate(test_case, responses) -> list[TestResult]` -- analyze responses
-5. Add payloads to `src/agentscorer/attacker/payloads.py` (or define inline)
-6. Add the corresponding `AttackVector` value to `src/agentscorer/models/test_case.py` (if needed)
-7. Register the detector in `src/agentscorer/detectors/__init__.py`:
+5. Add payloads to `src/agentgate/attacker/payloads.py` (or define inline)
+6. Add the corresponding `AttackVector` value to `src/agentgate/models/test_case.py` (if needed)
+7. Register the detector in `src/agentgate/detectors/__init__.py`:
    - Import the class
    - Add entry to `DETECTOR_REGISTRY`
    - Add to `__all__`
@@ -903,9 +903,9 @@ class AdapterResponse:
 
 ### How to Add a New Report Format
 
-1. Create `src/agentscorer/reports/your_report.py`
+1. Create `src/agentgate/reports/your_report.py`
 2. Implement a class with `generate(scorecard, agent_config, duration, budget)` and `save(path)` methods
-3. Add the import to `src/agentscorer/reports/__init__.py`
+3. Add the import to `src/agentgate/reports/__init__.py`
 4. Add the format option to `cli.py`:
    - Add to the `--format` Choice list
    - Add rendering logic in the `scan` command

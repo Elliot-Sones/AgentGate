@@ -13,7 +13,7 @@
 4. [Detection Methods — Heuristic vs LLM-as-Judge](#4-detection-methods)
 5. [Ground Truth & Calibration — How To Validate Our Detectors](#5-ground-truth--calibration)
 6. [Coverage Gaps — What We Cannot Test](#6-coverage-gaps)
-7. [Recommended Scoring Design For AgentScorer](#7-recommended-scoring-design)
+7. [Recommended Scoring Design For AgentGate](#7-recommended-scoring-design)
 8. [Giskard Deep-Dive — Architecture, Detectors, and Patterns](#8-giskard-deep-dive)
 
 ---
@@ -98,7 +98,7 @@ Security Requirements multiply impact:
 - Medium: 1.0x
 - Low: 0.5x
 
-**Key Takeaway for AgentScorer:**
+**Key Takeaway for AgentGate:**
 CVSS scores individual vulnerabilities on a 0-10 scale using exploit difficulty × impact.
 It does NOT produce a composite "how secure is this system" score. Each finding gets
 its own CVSS score. The system's overall posture is assessed by looking at the
@@ -143,7 +143,7 @@ AIVSS = [(0.3 × ModifiedBase) + (0.5 × AISpecificMetrics) + (0.2 × ImpactMetr
 
 Note: AI-specific metrics get 50% weight — higher than the traditional base score (30%).
 
-**Key Takeaway for AgentScorer:**
+**Key Takeaway for AgentGate:**
 AIVSS is the most directly applicable framework. It scores individual AI vulnerabilities
 by combining traditional security metrics with AI-specific amplification. We should
 use this formula (or a simplified version) for per-finding scoring.
@@ -190,7 +190,7 @@ Total Score = Impact + Exploitability + HumanFactor + ComplexityPenalty
 - Medium: 4.0-6.9
 - Low: 0.1-3.9
 
-**Key Takeaway for AgentScorer:**
+**Key Takeaway for AgentGate:**
 The success_rate concept is powerful. Instead of binary pass/fail, run each test
 multiple times and use the failure rate to scale the score. A test that fails 1/3
 times is less severe than one that fails 3/3 times. We should adopt this.
@@ -252,7 +252,7 @@ significantly compromised."
 - Tens of thousands of adversarial tests with diverse evasion techniques
 - Open-source intelligence (OSINT) integration
 
-**Key Takeaway for AgentScorer:**
+**Key Takeaway for AgentGate:**
 The exponential resilience formula is the most defensible approach. Linear penalties
 (our original -25/-15 approach) don't reflect reality: a 5% failure rate IS a serious
 problem. The exponential model captures this. We should use this for our scoring.
@@ -288,7 +288,7 @@ For each detector:
 | C | Major issue detected, fail_rate 0.3-0.7 | Moderate risk |
 | D | Critical issue detected, fail_rate > 0.7 or critical finding | High risk |
 
-**Key Takeaway for AgentScorer:**
+**Key Takeaway for AgentGate:**
 Giskard proves you can build a successful tool with simple threshold-based
 scoring. Their A-D grades are straightforward but lack granularity — they
 don't use a composite formula. We should offer both: per-category grades
@@ -685,7 +685,7 @@ These are areas where NO framework has an established testing methodology:
 
 ### 6.4 Report Transparency
 
-Every AgentScorer report should include a "Limitations" section stating:
+Every AgentGate report should include a "Limitations" section stating:
 - This is black-box testing. Internal architecture vulnerabilities require separate assessment.
 - Supply chain, inter-agent communication, and database security are not tested.
 - Indirect injection detection is experimental — false positive rates may be higher.
@@ -694,7 +694,7 @@ Every AgentScorer report should include a "Limitations" section stating:
 
 ---
 
-## 7. Recommended Scoring Design For AgentScorer
+## 7. Recommended Scoring Design For AgentGate
 
 Based on all research above, here is the recommended scoring approach:
 
@@ -861,7 +861,7 @@ giskard.Dataset(
 # Auto-infers column types: CATEGORICAL, NUMERIC, or TEXT
 ```
 
-**Relevance for AgentScorer:**
+**Relevance for AgentGate:**
 Our `AgentAdapter` ABC serves the same purpose as `giskard.Model` — normalize
 all agent types into a unified interface. The key difference: our interface
 is `send(text) → text` (conversational), not `predict(DataFrame) → array`

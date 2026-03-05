@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from agentscorer.trust.checks.runtime_tool_audit import RuntimeToolAuditCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
-from agentscorer.trust.models import TrustSeverity
-from agentscorer.trust.runtime.trace_collector import RuntimeTrace
+from agentgate.trust.checks.runtime_tool_audit import RuntimeToolAuditCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
+from agentgate.trust.models import TrustSeverity
+from agentgate.trust.runtime.trace_collector import RuntimeTrace
 
 
 def _config(tmp_path: Path, **overrides) -> TrustScanConfig:

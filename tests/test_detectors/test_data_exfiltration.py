@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentscorer.adapters.mock import MockAdapter
-from agentscorer.config import ScanConfig
-from agentscorer.detectors.data_exfiltration import DataExfiltrationDetector
-from agentscorer.models.agent import AgentConfig
+from agentgate.adapters.mock import MockAdapter
+from agentgate.config import ScanConfig
+from agentgate.detectors.data_exfiltration import DataExfiltrationDetector
+from agentgate.models.agent import AgentConfig
 
 
 async def test_detects_vulnerable_agent(

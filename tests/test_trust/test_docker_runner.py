@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentscorer.trust.runtime.docker_runner import (
+from agentgate.trust.runtime.docker_runner import (
     _decode_ipv4_hex,
     _decode_ipv6_hex,
     _parse_proc_remote_ips,

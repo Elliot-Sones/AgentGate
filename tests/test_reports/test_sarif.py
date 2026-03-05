@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from agentscorer.models.agent import AgentConfig
-from agentscorer.models.score import (
+from agentgate.models.agent import AgentConfig
+from agentgate.models.score import (
     DetectorSummary,
     FailedTest,
     LetterGrade,
     ScoreCard,
 )
-from agentscorer.reports.sarif import SARIFReport
+from agentgate.reports.sarif import SARIFReport
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def test_sarif_structure(
     assert len(data["runs"]) == 1
 
     run = data["runs"][0]
-    assert run["tool"]["driver"]["name"] == "AgentScorer"
+    assert run["tool"]["driver"]["name"] == "AgentGate"
     assert len(run["tool"]["driver"]["rules"]) == 2
     assert len(run["results"]) == 3  # 2 + 1 failed tests
 

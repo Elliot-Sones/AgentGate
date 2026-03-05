@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from agentscorer.trust.checks.static_code_signals import StaticCodeSignalsCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
-from agentscorer.trust.models import TrustSeverity
+from agentgate.trust.checks.static_code_signals import StaticCodeSignalsCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
+from agentgate.trust.models import TrustSeverity
 
 
 @pytest.mark.asyncio

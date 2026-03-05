@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-from agentscorer.trust.checks.static_provenance import StaticProvenanceCheck
-from agentscorer.trust.config import TrustScanConfig
-from agentscorer.trust.context import TrustScanContext
-from agentscorer.trust.models import TrustSeverity
+from agentgate.trust.checks.static_provenance import StaticProvenanceCheck
+from agentgate.trust.config import TrustScanConfig
+from agentgate.trust.context import TrustScanContext
+from agentgate.trust.models import TrustSeverity
 
 
 def _config(tmp_path: Path, **overrides) -> TrustScanConfig:
@@ -29,7 +29,7 @@ async def test_provenance_fails_when_identity_constraints_missing(tmp_path: Path
     ctx.manifest = {"submission_id": "x"}
 
     check = StaticProvenanceCheck()
-    with patch("agentscorer.trust.checks.static_provenance.shutil.which", return_value="/usr/bin/cosign"):
+    with patch("agentgate.trust.checks.static_provenance.shutil.which", return_value="/usr/bin/cosign"):
         findings = await check.run(ctx)
 
     failed = [f for f in findings if not f.passed]
@@ -56,8 +56,8 @@ async def test_provenance_runs_cosign_with_pinned_identity(tmp_path: Path) -> No
         return subprocess.CompletedProcess(cmd, 0, stdout="verified", stderr="")
 
     check = StaticProvenanceCheck()
-    with patch("agentscorer.trust.checks.static_provenance.shutil.which", return_value="/usr/bin/cosign"), patch(
-        "agentscorer.trust.checks.static_provenance.subprocess.run",
+    with patch("agentgate.trust.checks.static_provenance.shutil.which", return_value="/usr/bin/cosign"), patch(
+        "agentgate.trust.checks.static_provenance.subprocess.run",
         side_effect=_run_stub,
     ):
         findings = await check.run(ctx)
@@ -74,7 +74,7 @@ async def test_provenance_cosign_key_path_must_exist(tmp_path: Path) -> None:
     ctx.manifest = {"provenance": {"cosign_key": "keys/missing.pub"}}
 
     check = StaticProvenanceCheck()
-    with patch("agentscorer.trust.checks.static_provenance.shutil.which", return_value="/usr/bin/cosign"):
+    with patch("agentgate.trust.checks.static_provenance.shutil.which", return_value="/usr/bin/cosign"):
         findings = await check.run(ctx)
 
     failed = [f for f in findings if not f.passed]
