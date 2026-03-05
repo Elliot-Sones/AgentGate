@@ -28,64 +28,20 @@ AgentGate catches this. You give it the agent's source code, Docker image, and a
 
 ---
 
-## Results: Real-World Agents
+## Results
 
-We pointed AgentGate at two popular open-source agent frameworks — no modifications, no trust manifests, straight off Docker Hub. These are the real numbers.
+We scanned two popular open-source agent frameworks straight off Docker Hub — no modifications, no trust manifests provided.
 
-### Flowise (47k GitHub stars) — `BLOCK`
+**[Flowise](https://github.com/FlowiseAI/Flowise)** (47k stars) — **`BLOCK`** — 14 critical, 3 high, 7 medium across 32 findings in 8.4s. Fourteen undeclared outbound connections caught via `/proc/net/tcp`. Prompt override phrase (`ignore previous instructions`) found in a marketplace chatflow template. No trust manifest. Image tag not pinned by digest.
 
-| | |
-|:--|:--|
-| **Verdict** | `BLOCK` |
-| **Findings** | 32 across 10 checks in 8.4s |
-| **Critical** | 14 |
-| **High** | 3 |
-| **Medium** | 7 |
+**[MetaGPT](https://github.com/FoundationAgents/MetaGPT)** (64k stars) — **`MANUAL_REVIEW`** — 0 critical, 32 high, 18 medium across 66 findings in 136s. Fifteen instances of `exec()`/`eval()` executing LLM-generated code. Three uses of `subprocess.run(shell=True)`. Ten undeclared outbound HTTP calls. No trust manifest.
 
-Top findings:
+We also built three purpose-built demo agents to test edge cases — a clean agent (`ALLOW`), a trojanized agent (`BLOCK`), and a stealth exfiltration agent that suppresses all its own logs (`BLOCK` — caught via kernel socket inspection when `docker logs` returned nothing). **2/2 malicious agents blocked. 0 false positives.**
 
-| Finding | Severity | Detail |
-|---|---|---|
-| Undeclared outbound egress (x14) | `CRITICAL` | Connections detected in both sandbox profiles via `/proc/net/tcp` — no domains were declared |
-| Prompt override phrase in source | `HIGH` | `ignore previous instructions` found in marketplace chatflow template |
-| Hidden instruction tokens | `HIGH` | `system:` directive patterns found in config files |
-| No trust manifest | `HIGH` | No declaration of tools, domains, or permissions |
-| Image not pinned by digest | `MEDIUM` | `flowiseai/flowise:latest` — mutable tag, no `@sha256` |
-
-### MetaGPT (64k GitHub stars) — `MANUAL_REVIEW`
-
-| | |
-|:--|:--|
-| **Verdict** | `MANUAL_REVIEW` |
-| **Findings** | 66 across 10 checks in 136s |
-| **Critical** | 0 |
-| **High** | 32 |
-| **Medium** | 18 |
-
-Top findings:
-
-| Finding | Severity | Detail |
-|---|---|---|
-| Dynamic `exec()`/`eval()` (x15) | `HIGH` | Executes LLM-generated code across actions, benchmarks, and serialization |
-| `subprocess.run(shell=True)` (x3) | `HIGH` | Shell command execution in repo parser and test code |
-| Undeclared outbound HTTP calls (x10) | `MEDIUM` | `requests.post()` / `requests.get()` across Minecraft env, utils, and test mocks |
-| `base64.b64decode()` (x7) | `LOW` | Decode operations in image tools, TTS, file utils — potential obfuscation vector |
-| No trust manifest | `HIGH` | No declaration of tools, domains, or permissions |
-
----
-
-### Demo Agents
-
-We also built three purpose-built agents to test edge cases — one clean, two deliberately malicious.
-
-| | Clean Agent | Trojanized Agent | Stealth Agent |
-|:--|:--:|:--:|:--:|
-| **Verdict** | `ALLOW` | `BLOCK` | `BLOCK` |
-| **Critical** | 0 | 2 | 1 |
-| **High** | 0 | 1 | 1 |
-| **Medium** | 4 | 4 | 4 |
-
-**2/2 malicious agents blocked. 0 false positives.** The stealth agent suppressed all its logs — `docker logs` returned nothing. Caught via kernel socket inspection (`/proc/net/tcp`).
+```bash
+# Try it yourself — builds and scans all 3 demo agents
+cd demo_agents && ./run_demo.sh
+```
 
 ---
 
@@ -128,23 +84,6 @@ flowchart LR
 | `ALLOW_WITH_WARNINGS` | Published with notes for the reviewer | Minor issues (e.g. missing dependency lockfile) |
 | `MANUAL_REVIEW` | Sent to a human to decide | Concerning signals (e.g. hidden instructions in prompts) |
 | `BLOCK` | Rejected | Undeclared network connections, stolen credentials, or sandbox evasion detected |
-
----
-
-## The Demo
-
-The repo includes three demo agents that show the range of outcomes:
-
-**Clean agent** — does what it says. Declares its tools, makes no undeclared connections. Result: **ALLOW**.
-
-**Trojanized agent** — looks like a support bot but secretly sends data to an external server. The code gives it away in static analysis, and the runtime sandbox catches the actual connection. Result: **BLOCK**.
-
-**Stealth agent** — the hard case. Exfiltrates data *and* suppresses all its logs. `docker logs` returns nothing. A log-based scanner would see a perfectly quiet, well-behaved agent. AgentGate catches it because it reads the kernel socket table directly — the undeclared connection shows up in `/proc/net/tcp` regardless of what the agent does with its own output. Result: **BLOCK**.
-
-```bash
-cd demo_agents && ./run_demo.sh
-# Reports (HTML, JSON, SARIF) saved to demo_output/
-```
 
 ---
 
@@ -227,6 +166,23 @@ agentgate scan http://localhost:8000/api --name "My Agent" --format all
 ```bash
 pip install -e .
 ```
+
+## Development
+
+For local contributor workflows, install the development extras and run pytest through the project-local
+module path. This keeps test discovery stable even if your machine has unrelated global pytest plugins
+installed.
+
+```bash
+pip install -e .[dev]
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -p pytest_asyncio.plugin
+python -m ruff check src tests
+```
+
+This project installs the `agentgate` CLI/package. The sibling `agentscorer-pyrit/` project is the
+separate PyRIT-backed implementation and installs `agentscorer`.
+
+From the workspace root you can also run `make test-agentscorer`.
 
 ```bash
 # Run the demo — builds 3 agents, scans all 3
