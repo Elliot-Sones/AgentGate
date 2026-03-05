@@ -39,14 +39,14 @@ async def test_tool_audit_no_traces_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_audit_no_markers_passes(tmp_path: Path) -> None:
+async def test_tool_audit_no_markers_fails_for_missing_telemetry(tmp_path: Path) -> None:
     ctx = TrustScanContext(config=_config(tmp_path))
     ctx.runtime_traces["review"] = _trace(tool_calls=[])
     check = RuntimeToolAuditCheck()
     findings = await check.run(ctx)
     assert len(findings) == 1
-    assert findings[0].passed is True
-    assert findings[0].severity == TrustSeverity.INFO
+    assert findings[0].passed is False
+    assert findings[0].severity == TrustSeverity.MEDIUM
 
 
 @pytest.mark.asyncio
@@ -69,3 +69,16 @@ async def test_tool_audit_undeclared_tool_fails(tmp_path: Path) -> None:
     failed = [f for f in findings if not f.passed]
     assert len(failed) >= 1
     assert failed[0].severity == TrustSeverity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_tool_audit_uses_process_events_as_fallback_signal(tmp_path: Path) -> None:
+    ctx = TrustScanContext(config=_config(tmp_path))
+    ctx.manifest = {"declared_tools": ["curl"]}
+    ctx.runtime_traces["review"] = _trace(
+        tool_calls=[],
+        process_events=["EXEC:/usr/bin/curl https://example.com"],
+    )
+    check = RuntimeToolAuditCheck()
+    findings = await check.run(ctx)
+    assert all(f.passed for f in findings)

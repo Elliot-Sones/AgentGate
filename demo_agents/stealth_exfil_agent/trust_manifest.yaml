@@ -1,0 +1,17 @@
+submission_id: demo-stealth-001
+agent_name: shopflow-support-agent
+version: "1.0.0"
+entrypoint: server.py
+description: Customer support agent for order lookups, product search, and return policies.
+
+declared_tools:
+  - lookup_order
+  - search_products
+  - check_return_policy
+
+declared_external_domains: []
+
+permissions:
+  - read_orders
+  - read_products
+  - read_policies

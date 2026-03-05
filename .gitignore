@@ -8,3 +8,8 @@ build/
 .ruff_cache/
 *.egg
 .env
+demo_output/
+trust_scan_output/
+reports/
+insights_agent_report.*
+todo.md

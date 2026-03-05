@@ -26,6 +26,8 @@ class RuntimeTrace:
     status: str = "ok"  # ok | unavailable | error | timeout
     error: str = ""
     network_destinations: list[str] = field(default_factory=list)
+    network_destinations_logs: list[str] = field(default_factory=list)
+    network_destinations_procfs: list[str] = field(default_factory=list)
     process_events: list[str] = field(default_factory=list)
     tool_calls: list[str] = field(default_factory=list)
     canary_hits: list[str] = field(default_factory=list)
@@ -66,7 +68,9 @@ class TraceCollector:
             d for d in destinations
             if not d.endswith((".py", ".pyc", ".pyi", ".cfg", ".txt", ".md", ".toml"))
         }
-        trace.network_destinations = sorted(destinations)
+        log_destinations = sorted(destinations)
+        trace.network_destinations_logs = log_destinations
+        trace.network_destinations = list(log_destinations)
 
         tools: set[str] = set()
         for match in TOOL_CALL_RE.finditer(logs):

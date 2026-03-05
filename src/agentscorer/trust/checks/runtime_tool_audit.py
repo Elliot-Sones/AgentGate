@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+
 from agentscorer.trust.checks.base import BaseTrustCheck
 from agentscorer.trust.context import TrustScanContext
 from agentscorer.trust.models import TrustCategory, TrustFinding, TrustSeverity
@@ -26,17 +28,24 @@ class RuntimeToolAuditCheck(BaseTrustCheck):
 
         observed_tools: set[str] = set()
         for trace in ctx.runtime_traces.values():
-            observed_tools.update(trace.tool_calls)
+            observed_tools.update(t.lower() for t in trace.tool_calls)
+            observed_tools.update(_tool_hints_from_process_events(trace.process_events))
 
         if not observed_tools:
             findings.append(
                 self.finding(
-                    title="No tool call markers observed",
+                    title="Tool audit lacked trustworthy telemetry",
                     category=TrustCategory.TOOL_INTEGRITY,
-                    severity=TrustSeverity.INFO,
-                    passed=True,
-                    summary="No TOOL_CALL markers found in runtime logs.",
-                    recommendation="Instrument agent runtime to emit explicit tool-call telemetry for stronger auditing.",
+                    severity=TrustSeverity.MEDIUM,
+                    passed=False,
+                    summary=(
+                        "No tool-call markers or executable process events were observed, "
+                        "so tool-integrity verification is incomplete."
+                    ),
+                    recommendation=(
+                        "Require structured runtime tool telemetry (e.g., TOOL_CALL markers) "
+                        "or platform-level tool tracing before allowing publication."
+                    ),
                 )
             )
             return findings
@@ -79,7 +88,24 @@ def _declared_tool_names(manifest: dict) -> set[str]:
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, str):
-                names.add(item)
+                names.add(item.lower())
             elif isinstance(item, dict) and item.get("name"):
-                names.add(str(item["name"]))
+                names.add(str(item["name"]).lower())
     return names
+
+
+def _tool_hints_from_process_events(events: list[str]) -> set[str]:
+    hints: set[str] = set()
+    for event in events:
+        if ":" not in event:
+            continue
+        payload = event.split(":", 1)[1].strip()
+        if not payload:
+            continue
+        executable = payload.split()[0].strip()
+        if not executable:
+            continue
+        normalized = PurePosixPath(executable).name.lower()
+        if normalized:
+            hints.add(normalized)
+    return hints

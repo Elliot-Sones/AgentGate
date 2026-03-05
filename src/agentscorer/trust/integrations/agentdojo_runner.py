@@ -36,11 +36,14 @@ class AgentDojoRunner:
             return [
                 TrustFinding(
                     check_id="agentdojo_integration",
-                    title="AgentDojo package unavailable",
+                    title="AgentDojo package unavailable but suite requested",
                     category=TrustCategory.SANDBOX_EVASION,
-                    severity=TrustSeverity.INFO,
-                    passed=True,
-                    summary="AgentDojo integration skipped because package is not installed.",
+                    severity=TrustSeverity.MEDIUM,
+                    passed=False,
+                    summary=(
+                        "AgentDojo suite was explicitly requested via --agentdojo-suite "
+                        "but the agentdojo package is not installed."
+                    ),
                     recommendation="Install agentdojo to enable benchmark-backed trust scenarios.",
                     location_path=str(suite_path),
                 )

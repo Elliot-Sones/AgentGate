@@ -25,6 +25,8 @@ class TrustPolicy:
             return TrustVerdict.MANUAL_REVIEW
         if has(TrustSeverity.MEDIUM):
             return TrustVerdict.ALLOW_WITH_WARNINGS
+        if has(TrustSeverity.LOW):
+            return TrustVerdict.ALLOW_WITH_WARNINGS
         return TrustVerdict.ALLOW_CLEAN
 
     def should_fail(self, verdict: TrustVerdict, fail_on: str) -> bool:
