@@ -26,29 +26,6 @@ The hard problem it solves: **agents that hide their own traces.** A malicious a
 
 ---
 
-## Quick Start
-
-```bash
-pip install -e .
-```
-
-```bash
-# Run the included demo — builds 3 Docker agents, scans all 3
-cd demo_agents && ./run_demo.sh
-```
-
-```bash
-# Scan your own agent
-agentgate trust-scan \
-  --image my-agent:latest \
-  --source-dir ./src \
-  --manifest ./trust_manifest.yaml \
-  --profile both \
-  --format all
-```
-
----
-
 ## How the Scanner Actually Works
 
 A trust scan runs 10 checks in sequence. Five are static (no Docker needed), five are runtime.
@@ -235,3 +212,26 @@ agentgate scan http://localhost:8000/api --name "My Agent" --format all
 - **syft** — optional, for SBOM generation
 - **trivy** — optional, for vulnerability scanning
 - **Anthropic API key** — optional, enables LLM-generated attacks and judge evaluation for Phase 1 scans
+
+---
+
+## Quick Start
+
+```bash
+pip install -e .
+```
+
+```bash
+# Run the included demo — builds 3 Docker agents, scans all 3
+cd demo_agents && ./run_demo.sh
+```
+
+```bash
+# Scan your own agent
+agentgate trust-scan \
+  --image my-agent:latest \
+  --source-dir ./src \
+  --manifest ./trust_manifest.yaml \
+  --profile both \
+  --format all
+```
