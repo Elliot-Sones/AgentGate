@@ -21,7 +21,7 @@ AgentGate decides whether a third-party AI agent is safe to publish on a marketp
 The hard problem it solves: **agents that hide their own traces.** A malicious agent can redirect stdout/stderr to `/dev/null` and make zero API calls through the framework's logging layer. Every log-based scanner sees a clean, quiet process. AgentGate doesn't read logs for network activity — it reads `/proc/net/tcp` directly from the container's kernel namespace. The agent can't hide a TCP connection from its own OS.
 
 <div align="center">
-<img src="assets/terminal-demo.svg" alt="AgentGate scanning a stealth exfiltration agent" width="880">
+<img src="assets/terminal-demo.svg" alt="AgentGate scanning a stealth exfiltration agent" width="640">
 </div>
 
 ---
