@@ -1,6 +1,12 @@
 <div align="center">
 
-<h1>AgentGate</h1>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
+  <img alt="AgentGate" src="assets/logo-light.svg" width="520">
+</picture>
+
+<br><br>
 
 <p>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+"></a>
@@ -13,6 +19,10 @@
 AgentGate decides whether a third-party AI agent is safe to publish on a marketplace. It runs 10 automated checks — static analysis, sandboxed execution, kernel-level network inspection — and returns a verdict: `ALLOW_CLEAN`, `ALLOW_WITH_WARNINGS`, `MANUAL_REVIEW`, or `BLOCK`.
 
 The hard problem it solves: **agents that hide their own traces.** A malicious agent can redirect stdout/stderr to `/dev/null` and make zero API calls through the framework's logging layer. Every log-based scanner sees a clean, quiet process. AgentGate doesn't read logs for network activity — it reads `/proc/net/tcp` directly from the container's kernel namespace. The agent can't hide a TCP connection from its own OS.
+
+<div align="center">
+<img src="assets/terminal-demo.svg" alt="AgentGate scanning a stealth exfiltration agent" width="880">
+</div>
 
 ---
 
@@ -42,6 +52,46 @@ agentgate trust-scan \
 ## How the Scanner Actually Works
 
 A trust scan runs 10 checks in sequence. Five are static (no Docker needed), five are runtime.
+
+```mermaid
+flowchart LR
+    subgraph Input
+        A[Source Code]
+        B[Docker Image]
+        C[Trust Manifest]
+    end
+
+    subgraph Static["Static Checks"]
+        D[Manifest\nValidation]
+        E[Code Signals\n& Prompts]
+        F[Dependencies\n& Provenance]
+    end
+
+    subgraph Runtime["Runtime Checks"]
+        G["Sandbox\nDetonation\n(review + prodlike)"]
+        H["/proc/net/tcp\nSocket Capture"]
+        I[Canary Token\nDetection]
+        J[Behavior Diff\n(review vs prod)]
+    end
+
+    subgraph Verdict
+        K{Severity\nRollup}
+        L["ALLOW_CLEAN"]
+        M["ALLOW_WITH_WARNINGS"]
+        N["MANUAL_REVIEW"]
+        O["BLOCK"]
+    end
+
+    A --> D & E & F
+    B --> G
+    C --> D
+    G --> H & I & J
+    D & E & F & H & I & J --> K
+    K -->|All passed| L
+    K -->|MEDIUM/LOW| M
+    K -->|HIGH| N
+    K -->|CRITICAL| O
+```
 
 ### Static checks (no container execution)
 

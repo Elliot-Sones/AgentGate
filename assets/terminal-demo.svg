@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 620" width="880" height="620">
+  <!-- Window frame -->
+  <rect width="880" height="620" rx="10" ry="10" fill="#0d1117"/>
+
+  <!-- Title bar -->
+  <rect width="880" height="38" rx="10" ry="10" fill="#161b22"/>
+  <rect y="28" width="880" height="10" fill="#161b22"/>
+
+  <!-- Traffic light buttons -->
+  <circle cx="22" cy="19" r="6.5" fill="#f85149"/>
+  <circle cx="44" cy="19" r="6.5" fill="#d29922"/>
+  <circle cx="66" cy="19" r="6.5" fill="#3fb950"/>
+
+  <!-- Title text -->
+  <text x="440" y="24" text-anchor="middle" font-family="'SF Mono', 'Fira Code', monospace"
+        font-size="13" fill="#8b949e">agentgate trust-scan — stealth_exfil_agent</text>
+
+  <!-- Terminal content -->
+  <g transform="translate(20, 56)" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', monospace" font-size="13">
+    <!-- Command -->
+    <text y="0" fill="#3fb950">$</text>
+    <text x="16" y="0" fill="#e6edf3"> agentgate trust-scan --image demo-stealth-agent:latest --profile both --format all</text>
+
+    <!-- Verdict panel (BLOCK) -->
+    <rect x="0" y="18" width="840" height="90" rx="4" fill="none" stroke="#f85149" stroke-width="1.5"/>
+    <text x="14" y="40" fill="#e6edf3" font-weight="bold">AgentGate Trust Scan</text>
+    <text x="14" y="60" fill="#8b949e">Verdict: </text>
+    <text x="80" y="60" fill="#f85149" font-weight="bold">BLOCK</text>
+    <text x="14" y="78" fill="#8b949e">Checks: 10  Failed checks: 4</text>
+    <text x="14" y="96" fill="#8b949e">Findings: 14  Duration: 68.3s</text>
+
+    <!-- Severity table -->
+    <text x="0" y="132" fill="#e6edf3" font-weight="bold">Findings by Severity</text>
+    <line x1="0" y1="138" x2="200" y2="138" stroke="#30363d" stroke-width="1"/>
+    <text x="14" y="156" fill="#8b949e">Severity</text>
+    <text x="160" y="156" fill="#8b949e" text-anchor="end">Count</text>
+    <line x1="0" y1="162" x2="200" y2="162" stroke="#30363d" stroke-width="1"/>
+    <text x="14" y="180" fill="#f85149">CRITICAL</text>
+    <text x="160" y="180" fill="#e6edf3" text-anchor="end">2</text>
+    <text x="14" y="198" fill="#d29922">HIGH</text>
+    <text x="160" y="198" fill="#e6edf3" text-anchor="end">1</text>
+    <text x="14" y="216" fill="#d29922">MEDIUM</text>
+    <text x="160" y="216" fill="#e6edf3" text-anchor="end">3</text>
+    <text x="14" y="234" fill="#3fb950">INFO</text>
+    <text x="160" y="234" fill="#e6edf3" text-anchor="end">8</text>
+
+    <!-- Failed findings table -->
+    <text x="0" y="268" fill="#e6edf3" font-weight="bold">Failed Findings (4)</text>
+    <line x1="0" y1="274" x2="840" y2="274" stroke="#30363d" stroke-width="1"/>
+
+    <!-- Header row -->
+    <text x="14" y="292" fill="#8b949e">Check</text>
+    <text x="200" y="292" fill="#8b949e">Sev</text>
+    <text x="290" y="292" fill="#8b949e">Title</text>
+    <text x="540" y="292" fill="#8b949e">Summary</text>
+    <line x1="0" y1="298" x2="840" y2="298" stroke="#30363d" stroke-width="1"/>
+
+    <!-- Finding 1 -->
+    <text x="14" y="318" fill="#e6edf3">runtime_egress</text>
+    <text x="200" y="318" fill="#f85149">CRITICAL</text>
+    <text x="290" y="318" fill="#e6edf3">Undeclared outbound egress</text>
+    <text x="540" y="318" fill="#8b949e">Profile 'prodlike' connected to</text>
+    <text x="540" y="334" fill="#8b949e">'evil-c2.example.com'</text>
+
+    <!-- Finding 2 -->
+    <text x="14" y="360" fill="#e6edf3">runtime_canary</text>
+    <text x="200" y="360" fill="#f85149">CRITICAL</text>
+    <text x="290" y="360" fill="#e6edf3">Canary token exposure</text>
+    <text x="540" y="360" fill="#8b949e">Profile 'prodlike' referenced</text>
+    <text x="540" y="376" fill="#8b949e">canary: CANARY_AWS_SECRET_KEY</text>
+
+    <!-- Finding 3 -->
+    <text x="14" y="402" fill="#e6edf3">runtime_egress</text>
+    <text x="200" y="402" fill="#d29922">MEDIUM</text>
+    <text x="290" y="402" fill="#e6edf3">Egress confidence reduced</text>
+    <text x="540" y="402" fill="#8b949e">Log-only observations without</text>
+    <text x="540" y="418" fill="#8b949e">procfs socket evidence</text>
+
+    <!-- Finding 4 -->
+    <text x="14" y="444" fill="#e6edf3">static_code_signals</text>
+    <text x="200" y="444" fill="#d29922">HIGH</text>
+    <text x="290" y="444" fill="#e6edf3">Dynamic exec() detected</text>
+    <text x="540" y="444" fill="#8b949e">agent.py line 42: exec()</text>
+
+    <!-- Reports panel -->
+    <rect x="0" y="472" width="840" height="72" rx="4" fill="none" stroke="#30363d" stroke-width="1"/>
+    <text x="14" y="494" fill="#e6edf3" font-weight="bold">Reports</text>
+    <text x="14" y="514" fill="#8b949e"> HTML: demo_output/stealth_agent/trust_scan_report.html</text>
+    <text x="14" y="530" fill="#8b949e"> JSON: demo_output/stealth_agent/trust_scan_report.json</text>
+  </g>
+</svg>

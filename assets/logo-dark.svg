@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140">
+  <!-- Shield icon -->
+  <g transform="translate(30, 15)">
+    <!-- Shield body -->
+    <path d="M50 8 L90 22 L90 58 C90 82 72 100 50 110 C28 100 10 82 10 58 L10 22 Z"
+          fill="none" stroke="#58a6ff" stroke-width="3.5" stroke-linejoin="round"/>
+    <!-- Gate bars -->
+    <line x1="35" y1="40" x2="35" y2="80" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="50" y1="32" x2="50" y2="85" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="65" y1="40" x2="65" y2="80" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Gate crossbar -->
+    <line x1="28" y1="58" x2="72" y2="58" stroke="#58a6ff" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Checkmark -->
+    <path d="M38 90 L47 99 L68 75" stroke="#3fb950" stroke-width="3.5"
+          fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Text: AgentGate -->
+  <text x="145" y="72" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace"
+        font-size="44" font-weight="700" fill="#e6edf3" letter-spacing="-1">Agent</text>
+  <text x="330" y="72" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace"
+        font-size="44" font-weight="700" fill="#58a6ff" letter-spacing="-1">Gate</text>
+
+  <!-- Tagline -->
+  <text x="145" y="102" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="16" fill="#8b949e">Trust verification for AI agents</text>
+</svg>
