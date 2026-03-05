@@ -1,218 +1,20 @@
-<div align="center">
+# AgentGate
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
-  <img alt="AgentGate" src="assets/logo-light.svg" width="520">
-</picture>
+AgentGate scans AI agent submissions for a marketplace and decides whether to allow or block them. You give it the agent's source code, Docker image, and a manifest (what the agent claims it does). It runs the agent in a sandbox, watches what it actually does, and flags anything that doesn't match.
 
-<br><br>
+The main thing it does differently: it reads network connections from `/proc/net/tcp` inside the container instead of relying on application logs. So even if an agent suppresses all its stdout/stderr to hide what it's doing, we still see every TCP connection it makes.
 
-<p>
-  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+"></a>
-  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/docker-required-blue?style=flat-square&logo=docker&logoColor=white" alt="Docker Required"></a>
-  <a href="https://github.com/Elliot-Sones/Agent_Malware_Tester"><img src="https://img.shields.io/badge/version-2.0.0-green?style=flat-square" alt="Version 2.0.0"></a>
-</p>
+## Install
 
-</div>
-
-AgentGate decides whether a third-party AI agent is safe to publish on a marketplace. You give it the agent's source code, Docker image, and a manifest declaring what the agent does. It runs the agent in a sandbox, compares what happened against what was declared, and returns a verdict: **ALLOW** or **BLOCK**.
-
-<div align="center">
-<img src="assets/terminal-demo.svg" alt="AgentGate scanning a stealth exfiltration agent" width="640">
-</div>
-
----
-
-## Results
-
-We ran AgentGate against 3 demo agents — one clean, two malicious. These are the real numbers.
-
-<table>
-<tr>
-<td align="center" width="33%">
-<h3>Clean Agent</h3>
-<h1>ALLOW</h1>
-<p><strong>0</strong> critical &nbsp; <strong>0</strong> high &nbsp; <strong>4</strong> medium</p>
-<p>18 findings &middot; 10 checks &middot; 125s</p>
-</td>
-<td align="center" width="33%">
-<h3>Trojanized Agent</h3>
-<h1>BLOCK</h1>
-<p><strong>2</strong> critical &nbsp; <strong>1</strong> high &nbsp; <strong>4</strong> medium</p>
-<p>18 findings &middot; 10 checks &middot; 125s</p>
-</td>
-<td align="center" width="33%">
-<h3>Stealth Agent</h3>
-<h1>BLOCK</h1>
-<p><strong>1</strong> critical &nbsp; <strong>1</strong> high &nbsp; <strong>4</strong> medium</p>
-<p>17 findings &middot; 10 checks &middot; 124s</p>
-</td>
-</tr>
-</table>
-
-**2/2 malicious agents blocked. 0 false positives. The stealth agent had zero logs — caught via kernel socket inspection.**
-
-What triggered BLOCK:
-
-| Agent | Finding | Severity |
-|---|---|---|
-| Trojanized | Undeclared outbound egress detected | `CRITICAL` |
-| Trojanized | Undeclared outbound egress detected (second connection) | `CRITICAL` |
-| Trojanized | Hidden exfiltration directive in source code | `HIGH` |
-| Trojanized | Behavior differs between sandbox and production profiles | `MEDIUM` |
-| Stealth | Undeclared outbound egress to `8.8.8.8` (caught via `/proc/net/tcp` — no logs existed) | `CRITICAL` |
-| Stealth | Hidden exfiltration directive in source code | `HIGH` |
-| Stealth | Behavior differs between sandbox and production profiles | `MEDIUM` |
-
----
-
-## How It Works
-
-You submit three things: the agent's source code, its Docker image, and a trust manifest (a YAML file where the developer declares what the agent does — which tools it uses, which external domains it calls).
-
-AgentGate then checks whether the agent actually does what it claims:
-
-**1. It reads the code** — looking for red flags like hidden instructions in prompts, suspicious dependencies, or outbound HTTP calls the manifest didn't mention.
-
-**2. It runs the agent twice** — once with no network access, once with full network. A legitimate agent behaves the same both times. A malicious agent that waits for real network access before phoning home will behave differently — and that difference gets flagged.
-
-**3. It watches network activity from outside the container** — by reading `/proc/net/tcp` (the kernel's socket table) rather than the agent's logs. Even if the agent redirects all output to `/dev/null`, every TCP connection still shows up in the kernel.
-
-**4. It plants fake credentials** — fake AWS keys, database passwords, API tokens are injected into the container's environment. If any of those values appear in the agent's network traffic or logs, the agent is trying to steal secrets.
-
-Everything the agent does is compared against what it declared in the manifest. Anything undeclared → blocked.
-
-```mermaid
-flowchart LR
-    A["Agent submitted"] --> B["Read code\n+ manifest"]
-    B --> C["Run in sandbox\n(twice)"]
-    C --> D["Compare declared\nvs. actual behavior"]
-    D --> E{"Match?"}
-    E -->|"Yes"| F["ALLOW"]
-    E -->|"No"| G["BLOCK"]
-
-    style F fill:#3fb950,color:#fff
-    style G fill:#f85149,color:#fff
 ```
-
----
-
-## The Verdicts
-
-| Verdict | What happens | When |
-|---|---|---|
-| `ALLOW_CLEAN` | Agent is published automatically | Everything matched its declarations |
-| `ALLOW_WITH_WARNINGS` | Published with notes for the reviewer | Minor issues (e.g. missing dependency lockfile) |
-| `MANUAL_REVIEW` | Sent to a human to decide | Concerning signals (e.g. hidden instructions in prompts) |
-| `BLOCK` | Rejected | Undeclared network connections, stolen credentials, or sandbox evasion detected |
-
----
-
-## The Demo
-
-The repo includes three demo agents that show the range of outcomes:
-
-**Clean agent** — does what it says. Declares its tools, makes no undeclared connections. Result: **ALLOW**.
-
-**Trojanized agent** — looks like a support bot but secretly sends data to an external server. The code gives it away in static analysis, and the runtime sandbox catches the actual connection. Result: **BLOCK**.
-
-**Stealth agent** — the hard case. Exfiltrates data *and* suppresses all its logs. `docker logs` returns nothing. A log-based scanner would see a perfectly quiet, well-behaved agent. AgentGate catches it because it reads the kernel socket table directly — the undeclared connection shows up in `/proc/net/tcp` regardless of what the agent does with its own output. Result: **BLOCK**.
-
-```bash
-cd demo_agents && ./run_demo.sh
-# Reports (HTML, JSON, SARIF) saved to demo_output/
-```
-
----
-
-## Trust Manifest
-
-Every agent ships with a `trust_manifest.yaml` that declares what it does. AgentGate compares this against actual runtime behavior.
-
-```yaml
-submission_id: my-agent-v1
-agent_name: My Support Agent
-version: "1.0.0"
-entrypoint: server.py
-description: Customer support agent for order lookups
-
-declared_tools:
-  - lookup_order
-  - search_products
-  - check_return_policy
-
-declared_external_domains: []
-# If your agent calls external APIs, declare them:
-# declared_external_domains:
-#   - api.stripe.com
-#   - hooks.slack.com
-
-permissions:
-  - read_orders
-  - read_products
-```
-
----
-
-## CI/CD
-
-```bash
-agentgate trust-scan \
-  --image $AGENT_IMAGE \
-  --source-dir ./src \
-  --manifest ./trust_manifest.yaml \
-  --profile both \
-  --fail-on block \
-  --quiet \
-  --format sarif
-```
-
-Exit code 1 if the verdict meets or exceeds `--fail-on`. SARIF output plugs into GitHub Advanced Security.
-
----
-
-## Red Team Testing
-
-Separate from trust scanning. The `scan` command tests how well a *live* agent resists adversarial prompts — prompt injection, data exfiltration, tool misuse, goal hijacking, and more.
-
-```bash
-agentgate scan http://localhost:8000/api --name "My Agent" --format all
-```
-
----
-
-## Known Limitations
-
-- **procfs sampling is not continuous.** We sample 3 times at 400ms intervals — a very short-lived connection could be missed, though real exfiltration typically sustains a connection long enough to catch.
-- **Canary detection is string matching.** If an agent encodes stolen credentials before sending them, the log scan won't catch the value — but the procfs check still catches the network connection.
-- **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
-- **macOS runs Docker in a Linux VM.** procfs reading works, but production deployments should use native Linux.
-
----
-
-## Requirements
-
-- **Python 3.11+**
-- **Docker** — required for trust-scan runtime checks
-- **cosign** — optional, image signature verification
-- **Anthropic API key** — optional, enables LLM-generated attacks for red team scans
-
----
-
-## Quick Start
-
-```bash
 pip install -e .
 ```
 
-```bash
-# Run the demo — builds 3 agents, scans all 3
-cd demo_agents && ./run_demo.sh
-```
+Needs Python 3.11+ and Docker.
 
-```bash
-# Scan your own agent
+## Usage
+
+```
 agentgate trust-scan \
   --image my-agent:latest \
   --source-dir ./src \
@@ -220,3 +22,99 @@ agentgate trust-scan \
   --profile both \
   --format all
 ```
+
+This runs 10 checks against the agent and outputs a verdict: `allow_clean`, `allow_with_warnings`, `manual_review`, or `block`.
+
+Reports come out as terminal output + JSON + HTML + SARIF.
+
+## What it checks
+
+It runs 5 static checks (just reads files, no Docker) and 5 runtime checks (runs the container).
+
+**Static:**
+- Is the manifest valid? Does it have the required fields?
+- Does the source code have sketchy patterns? (`exec()`, `eval()`, `subprocess` with `shell=True`, outbound HTTP calls)
+- Are there hidden instructions in prompts? ("ignore previous instructions", "exfiltrate", etc.)
+- Are the dependencies legit? (checks for known typosquat packages like `request` vs `requests`)
+- Is the container image signed? (optional, needs cosign)
+
+**Runtime:**
+- Runs the agent in Docker with two profiles — once with no network (`--network none`) and once with network (`--network bridge`). Both are locked down: read-only filesystem, all capabilities dropped, 512MB memory limit, unprivileged user.
+- Reads `/proc/net/tcp` and `/proc/net/udp` from inside the container to see what it's connecting to. This is the part that catches agents that hide their logs.
+- Compares observed connections against `declared_external_domains` in the manifest. Anything not declared = critical finding = block.
+- Plants fake credentials (canary tokens) as env vars. If the agent tries to exfiltrate them, we see it.
+- Compares behavior between the two profiles. If the agent only makes connections when it has network access (and does nothing in the isolated run), that's a sign it's detecting the sandbox.
+
+## Verdicts
+
+Worst finding wins:
+- Any `critical` finding → `block`
+- Any `high` finding → `manual_review`
+- `medium` or `low` → `allow_with_warnings`
+- Nothing failed → `allow_clean`
+
+## Demo
+
+There are 3 demo agents in `demo_agents/`. One is clean, one is trojanized (makes undeclared connections), one is stealth (exfiltrates data but suppresses all logs).
+
+```
+cd demo_agents && ./run_demo.sh
+```
+
+Results from an actual run:
+
+```
+Clean agent:       allow_with_warnings  — 0 critical, 0 high, 4 medium
+Trojanized agent:  block                — 2 critical, 1 high, 4 medium
+Stealth agent:     block                — 1 critical, 1 high, 4 medium
+```
+
+The stealth agent is the one worth looking at. It redirects stdout/stderr to `/dev/null` — `docker logs` returns nothing. We still caught it because the undeclared connection to `8.8.8.8` showed up in `/proc/net/tcp`.
+
+## Trust manifest
+
+Agents ship with a `trust_manifest.yaml`:
+
+```yaml
+submission_id: my-agent-v1
+agent_name: My Support Agent
+version: "1.0.0"
+entrypoint: server.py
+
+declared_tools:
+  - lookup_order
+  - search_products
+
+declared_external_domains: []
+```
+
+If your agent calls external APIs, declare them. Undeclared connections get flagged as critical.
+
+## CI/CD
+
+```
+agentgate trust-scan \
+  --image $AGENT_IMAGE \
+  --source-dir ./src \
+  --manifest ./trust_manifest.yaml \
+  --fail-on block \
+  --quiet \
+  --format sarif
+```
+
+Exits with code 1 if the verdict hits the `--fail-on` threshold. SARIF works with GitHub Advanced Security.
+
+## Red team testing
+
+There's also a `scan` command that tests a live agent against adversarial prompts (prompt injection, data exfiltration, tool misuse, etc). Separate from trust scanning.
+
+```
+agentgate scan http://localhost:8000/api --name "My Agent" --format all
+```
+
+## Limitations
+
+- procfs is sampled 3 times at 400ms intervals, not continuously. Very short-lived connections could be missed.
+- Static analysis is regex. Obfuscated code like `getattr(__builtins__, 'ex'+'ec')` won't get caught statically — that's what the runtime checks are for.
+- Canary detection is string matching. If the agent encodes the token before sending it, the log scan misses it (but the network connection is still caught by procfs).
+- On macOS Docker runs in a VM. Works fine for dev, but production should be native Linux.
