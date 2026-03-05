@@ -16,7 +16,11 @@
 
 </div>
 
-AgentGate decides whether a third-party AI agent is safe to publish on a marketplace. You give it the agent's source code, Docker image, and a manifest declaring what the agent does. It runs the agent in a sandbox, compares what happened against what was declared, and returns a verdict: **ALLOW** or **BLOCK**.
+## The Problem
+
+AI agent marketplaces let third-party developers publish agents that run on your infrastructure, access your data, and call external APIs. But there's no way to verify that an agent actually does what it claims. An agent can declare "I only look up orders" while quietly exfiltrating credentials to an external server — and most scanners would never notice, because they rely on the agent's own logs.
+
+AgentGate catches this. You give it the agent's source code, Docker image, and a manifest declaring what the agent does. It runs the agent in a sandbox, compares what happened against what was declared, and returns a verdict: **ALLOW** or **BLOCK**.
 
 <div align="center">
 <img src="assets/terminal-demo.svg" alt="AgentGate scanning a stealth exfiltration agent" width="640">
@@ -24,46 +28,64 @@ AgentGate decides whether a third-party AI agent is safe to publish on a marketp
 
 ---
 
-## Results
+## Results: Real-World Agents
 
-We ran AgentGate against 3 demo agents — one clean, two malicious. These are the real numbers.
+We pointed AgentGate at two popular open-source agent frameworks — no modifications, no trust manifests, straight off Docker Hub. These are the real numbers.
 
-<table>
-<tr>
-<td align="center" width="33%">
-<h3>Clean Agent</h3>
-<h1>ALLOW</h1>
-<p><strong>0</strong> critical &nbsp; <strong>0</strong> high &nbsp; <strong>4</strong> medium</p>
-<p>18 findings &middot; 10 checks &middot; 125s</p>
-</td>
-<td align="center" width="33%">
-<h3>Trojanized Agent</h3>
-<h1>BLOCK</h1>
-<p><strong>2</strong> critical &nbsp; <strong>1</strong> high &nbsp; <strong>4</strong> medium</p>
-<p>18 findings &middot; 10 checks &middot; 125s</p>
-</td>
-<td align="center" width="33%">
-<h3>Stealth Agent</h3>
-<h1>BLOCK</h1>
-<p><strong>1</strong> critical &nbsp; <strong>1</strong> high &nbsp; <strong>4</strong> medium</p>
-<p>17 findings &middot; 10 checks &middot; 124s</p>
-</td>
-</tr>
-</table>
+### Flowise (47k GitHub stars) — `BLOCK`
 
-**2/2 malicious agents blocked. 0 false positives. The stealth agent had zero logs — caught via kernel socket inspection.**
+| | |
+|:--|:--|
+| **Verdict** | `BLOCK` |
+| **Findings** | 32 across 10 checks in 8.4s |
+| **Critical** | 14 |
+| **High** | 3 |
+| **Medium** | 7 |
 
-What triggered BLOCK:
+Top findings:
 
-| Agent | Finding | Severity |
+| Finding | Severity | Detail |
 |---|---|---|
-| Trojanized | Undeclared outbound egress detected | `CRITICAL` |
-| Trojanized | Undeclared outbound egress detected (second connection) | `CRITICAL` |
-| Trojanized | Hidden exfiltration directive in source code | `HIGH` |
-| Trojanized | Behavior differs between sandbox and production profiles | `MEDIUM` |
-| Stealth | Undeclared outbound egress to `8.8.8.8` (caught via `/proc/net/tcp` — no logs existed) | `CRITICAL` |
-| Stealth | Hidden exfiltration directive in source code | `HIGH` |
-| Stealth | Behavior differs between sandbox and production profiles | `MEDIUM` |
+| Undeclared outbound egress (x14) | `CRITICAL` | Connections detected in both sandbox profiles via `/proc/net/tcp` — no domains were declared |
+| Prompt override phrase in source | `HIGH` | `ignore previous instructions` found in marketplace chatflow template |
+| Hidden instruction tokens | `HIGH` | `system:` directive patterns found in config files |
+| No trust manifest | `HIGH` | No declaration of tools, domains, or permissions |
+| Image not pinned by digest | `MEDIUM` | `flowiseai/flowise:latest` — mutable tag, no `@sha256` |
+
+### MetaGPT (64k GitHub stars) — `MANUAL_REVIEW`
+
+| | |
+|:--|:--|
+| **Verdict** | `MANUAL_REVIEW` |
+| **Findings** | 66 across 10 checks in 136s |
+| **Critical** | 0 |
+| **High** | 32 |
+| **Medium** | 18 |
+
+Top findings:
+
+| Finding | Severity | Detail |
+|---|---|---|
+| Dynamic `exec()`/`eval()` (x15) | `HIGH` | Executes LLM-generated code across actions, benchmarks, and serialization |
+| `subprocess.run(shell=True)` (x3) | `HIGH` | Shell command execution in repo parser and test code |
+| Undeclared outbound HTTP calls (x10) | `MEDIUM` | `requests.post()` / `requests.get()` across Minecraft env, utils, and test mocks |
+| `base64.b64decode()` (x7) | `LOW` | Decode operations in image tools, TTS, file utils — potential obfuscation vector |
+| No trust manifest | `HIGH` | No declaration of tools, domains, or permissions |
+
+---
+
+### Demo Agents
+
+We also built three purpose-built agents to test edge cases — one clean, two deliberately malicious.
+
+| | Clean Agent | Trojanized Agent | Stealth Agent |
+|:--|:--:|:--:|:--:|
+| **Verdict** | `ALLOW` | `BLOCK` | `BLOCK` |
+| **Critical** | 0 | 2 | 1 |
+| **High** | 0 | 1 | 1 |
+| **Medium** | 4 | 4 | 4 |
+
+**2/2 malicious agents blocked. 0 false positives.** The stealth agent suppressed all its logs — `docker logs` returned nothing. Caught via kernel socket inspection (`/proc/net/tcp`).
 
 ---
 
