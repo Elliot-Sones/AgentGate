@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "AgentScorer Trust",
+          "rules": [
+            {
+              "id": "TS-STATIC_PROVENANCE",
+              "name": "Image reference missing immutable digest",
+              "shortDescription": {
+                "text": "Image reference missing immutable digest"
+              },
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "TS-STATIC_PROVENANCE",
+          "level": "warning",
+          "message": {
+            "text": "Image reference missing immutable digest: Image 'insights-agent:test' is not pinned by digest."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "submission"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ],
+          "properties": {
+            "category": "provenance",
+            "severity": "medium",
+            "checkId": "static_provenance",
+            "confidence": 0.95
+          }
+        }
+      ],
+      "properties": {
+        "verdict": "allow_with_warnings",
+        "checksRun": 10,
+        "findingsTotal": 17
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+submission_id: test-insights-001
+agent_name: insights-agent
+name: insights-agent
+version: "0.1.0"
+entrypoint: server.py
+description: Shopify insights agent for product and revenue data analysis
+
+declared_tools:
+  - search_products
+  - get_revenue
+  - get_customers
+
+declared_domains:
+  - localhost
+
+permissions:
+  - read_products
+  - read_revenue
+  - read_customers
