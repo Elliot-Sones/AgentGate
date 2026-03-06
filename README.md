@@ -12,8 +12,6 @@
 
 </div>
 
-## The Problem
-
 AI agent marketplaces let third-party developers publish agents that run on your infrastructure, access your data, and call external APIs. But there's no way to verify that an agent actually does what it claims. An agent can declare "I only look up orders" while quietly exfiltrating credentials to an external server — and most scanners would never notice, because they rely on the agent's own logs.
 
 AgentGate catches this. You give it the agent's source code, Docker image, and a manifest declaring what the agent does. It runs the agent in a sandbox, compares what happened against what was declared, and returns a verdict: **ALLOW** or **BLOCK**.
