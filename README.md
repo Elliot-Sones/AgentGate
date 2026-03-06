@@ -6,7 +6,7 @@
   <img alt="AgentGate" src="assets/logo-light.svg" width="520">
 </picture>
 
-<br><br>
+<br>
 
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/docker-required-blue?style=flat-square&logo=docker&logoColor=white" alt="Docker Required"></a>
