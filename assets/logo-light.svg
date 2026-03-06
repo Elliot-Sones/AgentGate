@@ -18,7 +18,7 @@
   <!-- Text: AgentGate -->
   <text x="145" y="72" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace"
         font-size="44" font-weight="700" fill="#1f2328" letter-spacing="-1">Agent</text>
-  <text x="330" y="72" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace"
+  <text x="280" y="72" font-family="'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace"
         font-size="44" font-weight="700" fill="#0969da" letter-spacing="-1">Gate</text>
 
   <!-- Tagline -->
