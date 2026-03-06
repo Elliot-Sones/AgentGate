@@ -2,6 +2,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+.coverage
+.coverage.*
+.mypy_cache/
+.python-version
+.venv/
+.DS_Store
 dist/
 build/
 .pytest_cache/
@@ -13,3 +19,5 @@ trust_scan_output/
 reports/
 insights_agent_report.*
 todo.md
+CLAUDE.md
+index.md
