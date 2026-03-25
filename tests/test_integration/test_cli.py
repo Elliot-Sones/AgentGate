@@ -54,7 +54,7 @@ class TestFailBelow:
         with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
-                ["scan", "http://test:8000", "--fail-below", "0.9", "--quiet", "--format", "terminal"],
+                ["security-scan", "http://test:8000", "--fail-below", "0.9", "--quiet", "--format", "terminal"],
             )
         assert result.exit_code == 1
 
@@ -65,7 +65,7 @@ class TestFailBelow:
         with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
-                ["scan", "http://test:8000", "--fail-below", "0.9", "--quiet", "--format", "terminal"],
+                ["security-scan", "http://test:8000", "--fail-below", "0.9", "--quiet", "--format", "terminal"],
             )
         assert result.exit_code == 0
 
@@ -76,7 +76,7 @@ class TestFailBelow:
         with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
-                ["scan", "http://test:8000", "--quiet", "--format", "terminal"],
+                ["security-scan", "http://test:8000", "--quiet", "--format", "terminal"],
             )
         assert result.exit_code == 0
 
@@ -89,7 +89,7 @@ class TestQuietMode:
         with patch("agentgate.cli.asyncio.run", side_effect=_run_stub_factory(mock_result)):
             result = runner.invoke(
                 cli,
-                ["scan", "http://test:8000", "--quiet", "--format", "terminal"],
+                ["security-scan", "http://test:8000", "--quiet", "--format", "terminal"],
             )
         # In quiet mode with terminal format, no terminal output should be rendered
         assert "AgentGate" not in result.output

@@ -1,0 +1,22 @@
+submission_id: railway-mem0-agentgate-demo-mem0-agentgate-demo-production
+agent_name: mem0-agentgate-demo
+entrypoint: Railway deployment
+description: Auto-generated from Railway project 'mem0-agentgate-demo' service 'mem0-agentgate-demo'
+  (production).
+declared_tools: []
+declared_external_domains: []
+permissions: []
+customer_data_access: unknown
+integrations:
+- railway
+deployment:
+  platform: railway
+  project_name: mem0-agentgate-demo
+  project_id: proj-123
+  environment_name: production
+  service_name: mem0-agentgate-demo
+  public_domain: ''
+  private_domain: ''
+  service_graph: []
+  discovery_notes: []
+  omitted_sensitive_env: []

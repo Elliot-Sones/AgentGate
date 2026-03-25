@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from agentgate.adapters.base import AdapterResponse
 from agentgate.adapters.mock import MockAdapter

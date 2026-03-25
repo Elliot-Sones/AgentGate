@@ -10,6 +10,7 @@ class BaseTrustCheck(ABC):
     """Base interface for Phase 2 trust checks."""
 
     check_id: str = "base"
+    description: str = ""
 
     @abstractmethod
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:

@@ -7,6 +7,7 @@ from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
 
 class RuntimeBehaviorDiffCheck(BaseTrustCheck):
     check_id = "runtime_behavior_diff"
+    description = "Compares agent behavior across multiple runtime profiles when available."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         review = ctx.runtime_traces.get("review")
@@ -16,10 +17,10 @@ class RuntimeBehaviorDiffCheck(BaseTrustCheck):
             return [
                 self.finding(
                     title="Behavior diff skipped (single profile run)",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.INFO,
                     passed=True,
-                    summary="Both review and prodlike profiles are required for differential behavior analysis.",
+                    summary="Multiple runtime profiles are required for differential behavior analysis.",
                 )
             ]
 
@@ -37,14 +38,14 @@ class RuntimeBehaviorDiffCheck(BaseTrustCheck):
             findings.append(
                 self.finding(
                     title="Profile-dependent network behavior detected",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.MEDIUM,
                     passed=False,
                     summary=(
                         "Prodlike profile reached destinations not seen in review profile: "
                         + ", ".join(extra_net)
                     ),
-                    recommendation="Investigate for sandbox-aware or delayed malicious behavior.",
+                    recommendation="Investigate for runtime-context-aware or delayed malicious behavior.",
                     observed=", ".join(extra_net),
                 )
             )
@@ -53,7 +54,7 @@ class RuntimeBehaviorDiffCheck(BaseTrustCheck):
             findings.append(
                 self.finding(
                     title="Profile-dependent tool behavior detected",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.HIGH,
                     passed=False,
                     summary=(
@@ -69,7 +70,7 @@ class RuntimeBehaviorDiffCheck(BaseTrustCheck):
             findings.append(
                 self.finding(
                     title="No profile-dependent behavior deltas detected",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.INFO,
                     passed=True,
                     summary="Review and prodlike traces were behaviorally consistent for network and tool calls.",

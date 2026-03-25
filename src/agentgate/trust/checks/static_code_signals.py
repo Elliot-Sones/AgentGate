@@ -29,6 +29,7 @@ PATTERNS: list[tuple[str, TrustSeverity, re.Pattern[str]]] = [
 
 class StaticCodeSignalsCheck(BaseTrustCheck):
     check_id = "static_code_signals"
+    description = "Scans source code for obfuscation, anti-analysis, and suspicious patterns."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         source = ctx.source_dir

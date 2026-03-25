@@ -26,6 +26,7 @@ HIDDEN_INSTRUCTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 class StaticPromptToolInspectionCheck(BaseTrustCheck):
     check_id = "static_prompt_tool_inspection"
+    description = "Scans source for hardcoded prompts, tool definitions, and API patterns."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         source = ctx.source_dir

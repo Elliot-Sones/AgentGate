@@ -9,6 +9,7 @@ from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
 
 class RuntimeToolAuditCheck(BaseTrustCheck):
     check_id = "runtime_tool_audit"
+    description = "Compares observed tool usage against declared tools in the manifest."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         findings: list[TrustFinding] = []

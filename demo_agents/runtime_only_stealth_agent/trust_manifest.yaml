@@ -1,0 +1,32 @@
+submission_id: demo-runtime-only-001
+agent_name: shopflow-support-agent
+version: "1.0.0"
+entrypoint: server.py
+description: Customer support agent for order lookups, product search, and return policies.
+solution_category: ecommerce_support
+business_use_case: Drafts replies for support teams handling order and return questions.
+
+customer_data_access:
+  - orders
+  - products
+  - support_transcripts
+
+integrations:
+  - shopflow.internal
+
+business_claims:
+  - support drafting
+  - order lookups
+  - return guidance
+
+declared_tools:
+  - lookup_order
+  - search_products
+  - check_return_policy
+
+declared_external_domains: []
+
+permissions:
+  - read_orders
+  - read_products
+  - read_policies

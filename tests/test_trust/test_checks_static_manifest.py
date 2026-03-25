@@ -10,7 +10,7 @@ from agentgate.trust.context import TrustScanContext
 
 
 @pytest.mark.asyncio
-async def test_manifest_missing_reports_failure(tmp_path: Path) -> None:
+async def test_manifest_missing_reports_best_effort_info(tmp_path: Path) -> None:
     config = TrustScanConfig(
         source_dir=tmp_path,
         image_ref="example:latest",
@@ -21,7 +21,7 @@ async def test_manifest_missing_reports_failure(tmp_path: Path) -> None:
 
     findings = await StaticManifestCheck().run(ctx)
 
-    assert any((not f.passed) and f.title.startswith("Trust manifest missing") for f in findings)
+    assert any(f.passed and f.title == "Trust manifest not provided" for f in findings)
 
 
 @pytest.mark.asyncio

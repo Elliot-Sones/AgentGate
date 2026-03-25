@@ -9,7 +9,6 @@ import anthropic
 from agentgate.adapters.base import AdapterResponse, AgentAdapter
 from agentgate.attacker.adaptive import AttackResult
 from agentgate.attacker.strategies.base import AttackStrategy
-from agentgate.config import ScanConfig
 from agentgate.models.test_case import AttackVector, TestCase
 
 logger = logging.getLogger(__name__)

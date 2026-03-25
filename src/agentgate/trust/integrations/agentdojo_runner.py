@@ -21,7 +21,7 @@ class AgentDojoRunner:
                 TrustFinding(
                     check_id="agentdojo_integration",
                     title="AgentDojo suite path not found",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.MEDIUM,
                     passed=False,
                     summary=f"Configured AgentDojo suite path does not exist: {suite_path}",
@@ -37,7 +37,7 @@ class AgentDojoRunner:
                 TrustFinding(
                     check_id="agentdojo_integration",
                     title="AgentDojo package unavailable but suite requested",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.MEDIUM,
                     passed=False,
                     summary=(
@@ -59,7 +59,7 @@ class AgentDojoRunner:
                 TrustFinding(
                     check_id="agentdojo_integration",
                     title="Failed to load AgentDojo suite config",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.MEDIUM,
                     passed=False,
                     summary=f"Could not parse suite configuration at: {suite_path}",
@@ -79,7 +79,7 @@ class AgentDojoRunner:
                 TrustFinding(
                     check_id="agentdojo_integration",
                     title="AgentDojo API mismatch",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.LOW,
                     passed=False,
                     summary="Could not import agentdojo.default_suites.get_suite — API may have changed.",
@@ -95,7 +95,7 @@ class AgentDojoRunner:
                 TrustFinding(
                     check_id="agentdojo_integration",
                     title="AgentDojo suite not found",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.MEDIUM,
                     passed=False,
                     summary=f"Suite '{suite_name}' could not be loaded: {exc}",
@@ -115,7 +115,7 @@ class AgentDojoRunner:
                     TrustFinding(
                         check_id="agentdojo_integration",
                         title="AgentDojo API mismatch (tasks)",
-                        category=TrustCategory.SANDBOX_EVASION,
+                        category=TrustCategory.RUNTIME_INTEGRITY,
                         severity=TrustSeverity.LOW,
                         passed=False,
                         summary="Suite object lacks 'injectable_tasks' or 'tasks' attribute.",
@@ -140,7 +140,7 @@ class AgentDojoRunner:
                         TrustFinding(
                             check_id="agentdojo_integration",
                             title=f"AgentDojo attack succeeded: {task_id}",
-                            category=TrustCategory.SANDBOX_EVASION,
+                            category=TrustCategory.RUNTIME_INTEGRITY,
                             severity=TrustSeverity.HIGH,
                             passed=False,
                             summary=f"Task '{task_id}' attack succeeded — agent was manipulated.",
@@ -154,7 +154,7 @@ class AgentDojoRunner:
                         TrustFinding(
                             check_id="agentdojo_integration",
                             title=f"AgentDojo task passed: {task_id}",
-                            category=TrustCategory.SANDBOX_EVASION,
+                            category=TrustCategory.RUNTIME_INTEGRITY,
                             severity=TrustSeverity.INFO,
                             passed=True,
                             summary=f"Task '{task_id}' completed without attack success.",
@@ -167,7 +167,7 @@ class AgentDojoRunner:
                     TrustFinding(
                         check_id="agentdojo_integration",
                         title=f"AgentDojo task error: {task_id}",
-                        category=TrustCategory.SANDBOX_EVASION,
+                        category=TrustCategory.RUNTIME_INTEGRITY,
                         severity=TrustSeverity.LOW,
                         passed=False,
                         summary=f"Task '{task_id}' raised an error: {exc}",
@@ -181,7 +181,7 @@ class AgentDojoRunner:
                 TrustFinding(
                     check_id="agentdojo_integration",
                     title="AgentDojo suite completed with no tasks",
-                    category=TrustCategory.SANDBOX_EVASION,
+                    category=TrustCategory.RUNTIME_INTEGRITY,
                     severity=TrustSeverity.INFO,
                     passed=True,
                     summary="Suite was loaded but contained no matching tasks.",

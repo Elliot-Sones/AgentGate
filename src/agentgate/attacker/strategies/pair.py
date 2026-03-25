@@ -3,7 +3,6 @@ from __future__ import annotations
 from agentgate.adapters.base import AgentAdapter
 from agentgate.attacker.adaptive import AdaptiveAttacker, AttackResult
 from agentgate.attacker.strategies.base import AttackStrategy
-from agentgate.config import ScanConfig
 from agentgate.models.test_case import AttackVector
 
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 
 from agentgate.adapters.base import AdapterResponse
 from agentgate.attacker.payloads import (

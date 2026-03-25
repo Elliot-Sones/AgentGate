@@ -4,6 +4,7 @@ import hashlib
 import uuid
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -23,7 +24,7 @@ class TrustCategory(str, Enum):
     EGRESS = "egress"
     CANARY = "canary"
     TOOL_INTEGRITY = "tool_integrity"
-    SANDBOX_EVASION = "sandbox_evasion"
+    RUNTIME_INTEGRITY = "runtime_integrity"
     DECLARATION = "declaration"
 
 
@@ -82,11 +83,150 @@ class TrustScorecard(BaseModel):
     policy_version: str = "trust-policy-v1"
 
 
+class CheckRecord(BaseModel):
+    """What was tested and its outcome."""
+
+    check_id: str
+    description: str
+    status: str = "completed"  # completed | skipped | error
+    findings_count: int = 0
+    failed: bool = False
+
+
+class RuntimeInspect(BaseModel):
+    """Runtime inspection telemetry captured during hosted agent evaluation."""
+
+    user: str = ""
+    network_mode: str = ""
+    exit_code: int | None = None
+    ports: list[str] = []
+    env_keys: list[str] = []
+    capabilities: list[str] = []
+    oom_killed: bool = False
+
+
+class RuntimeProfile(BaseModel):
+    """What happened during a single hosted runtime evaluation profile."""
+
+    name: str
+    network_mode: str = ""
+    status: str = "ok"  # ok | timeout | error | unavailable
+    network_destinations: list[str] = []
+    internal_destinations: list[str] = []
+    tool_calls: list[str] = []
+    process_events: list[str] = []
+    canary_hits: list[str] = []
+    probe_responses: list[dict[str, Any]] = []
+    inspect: RuntimeInspect | None = None
+
+
+class DependencyRecord(BaseModel):
+    """A backing service that was started as a sidecar."""
+
+    service: str
+    source: str = "declared"  # declared | inferred
+    image: str = ""
+    port: int = 0
+    healthy: bool = True
+    inference_note: str = ""
+
+
+class AgentOverview(BaseModel):
+    """What the agent is, from the manifest."""
+
+    name: str = ""
+    description: str = ""
+    version: str = ""
+    category: str = ""
+    business_use_case: str = ""
+    customer_data_access: list[str] = []
+    declared_tools: list[str] = []
+    declared_external_domains: list[str] = []
+    business_claims: list[str] = []
+    integrations: list[str] = []
+    permissions: list[str] = []
+
+
+class ReportEnrichment(BaseModel):
+    executive_summary: str = ""
+    finding_narratives: dict[str, str] = {}
+    reviewer_guidance: list[str] = []
+    buyer_disclosure: list[str] = []
+    model: str = ""
+    prompt_version: str = ""
+    generated_at: str = ""
+    generated_by_llm: bool = False
+
+
+class SubmissionSupport(BaseModel):
+    supported: bool = True
+    status: str = "supported"
+    reason: str = ""
+    detail: str = ""
+    notes: list[str] = []
+
+
+class GeneratedRuntimeProfile(BaseModel):
+    build_strategy: str = "dockerfile"
+    dockerfile_path: str = ""
+    entrypoint: str = ""
+    http_supported: bool = False
+    port_candidates: list[int] = []
+    probe_paths: list[str] = []
+    dependencies: list[str] = []
+    runtime_env_keys: list[str] = []
+    integrations: list[str] = []
+    unsupported_integrations: list[str] = []
+    issued_integrations: list[str] = []
+    allow_domains: list[str] = []
+    notes: list[str] = []
+
+
+class DeploymentSummary(BaseModel):
+    platform: str = ""
+    build_status: str = "not_started"
+    deployment_status: str = "not_started"
+    project_id: str = ""
+    project_name: str = ""
+    environment_name: str = ""
+    service_name: str = ""
+    public_url: str = ""
+    dependency_services: list[str] = []
+    issued_integrations: list[str] = []
+    notes: list[str] = []
+
+
+class CoverageSummary(BaseModel):
+    level: str = "none"
+    exercised_surfaces: list[str] = []
+    skipped_surfaces: list[str] = []
+    notes: list[str] = []
+
+
+class ConfidenceSummary(BaseModel):
+    score: int = 0
+    evidence_quality: str = "weak"
+    inconclusive: bool = True
+    drivers: list[str] = []
+
+
 class TrustScanResult(BaseModel):
     scorecard: TrustScorecard
     findings: list[TrustFinding]
-    metadata: dict[str, str | int | float | list[str] | dict[str, str]] = {}
+    metadata: dict[str, Any] = {}
     artifacts_manifest: list[EvidenceRef] = []
+
+    # Structured data for reports
+    agent_overview: AgentOverview | None = None
+    checks: list[CheckRecord] = []
+    runtime_profiles: list[RuntimeProfile] = []
+    dependencies: list[DependencyRecord] = []
+    enrichment: ReportEnrichment | None = None
+    submission_support: SubmissionSupport | None = None
+    generated_runtime_profile: GeneratedRuntimeProfile | None = None
+    deployment_summary: DeploymentSummary | None = None
+    coverage: CoverageSummary | None = None
+    confidence: ConfidenceSummary | None = None
 
 
 def verdict_rank(verdict: TrustVerdict) -> int:

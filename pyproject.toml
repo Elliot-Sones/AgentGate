@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "agentgate"
 version = "2.0.0"
 description = "Autonomous AI Agent Stress-Tester"
+license = {text = "MIT"}
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.39.0",

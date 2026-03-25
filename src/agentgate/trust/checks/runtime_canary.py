@@ -8,6 +8,7 @@ from agentgate.trust.runtime.canary_bank import CanaryBank
 
 class RuntimeCanaryCheck(BaseTrustCheck):
     check_id = "runtime_canary"
+    description = "Detects if injected canary tokens leaked through logs or network traffic."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         if not ctx.runtime_traces:

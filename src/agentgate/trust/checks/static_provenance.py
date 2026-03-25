@@ -11,6 +11,7 @@ from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
 
 class StaticProvenanceCheck(BaseTrustCheck):
     check_id = "static_provenance"
+    description = "Verifies container image signatures using cosign."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         findings: list[TrustFinding] = []

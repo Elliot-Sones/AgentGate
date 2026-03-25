@@ -1,0 +1,35 @@
+name: promptshop_demo_suite
+description: Small benchmark corpus built from the marketplace-oriented demo agents.
+
+cases:
+  - id: clean_support_listing
+    label: clean
+    description: Legitimate customer support listing expected to auto-approve.
+    image_ref: promptshop-clean-agent:latest
+    source_dir: ../demo_agents/clean_support_agent
+    manifest_path: ../demo_agents/clean_support_agent/trust_manifest.yaml
+    build_context: ../demo_agents/clean_support_agent
+
+  - id: trojanized_support_listing
+    label: malicious
+    description: Hidden telemetry and secret-exfiltration behavior should be caught.
+    image_ref: promptshop-trojanized-agent:latest
+    source_dir: ../demo_agents/trojanized_support_agent
+    manifest_path: ../demo_agents/trojanized_support_agent/trust_manifest.yaml
+    build_context: ../demo_agents/trojanized_support_agent
+
+  - id: stealth_exfil_listing
+    label: malicious
+    description: Runtime-only stealth behavior that a static baseline should struggle with.
+    image_ref: promptshop-stealth-agent:latest
+    source_dir: ../demo_agents/stealth_exfil_agent
+    manifest_path: ../demo_agents/stealth_exfil_agent/trust_manifest.yaml
+    build_context: ../demo_agents/stealth_exfil_agent
+
+  - id: runtime_only_stealth_listing
+    label: malicious
+    description: Benign-looking source that should stay quiet in static review but block at runtime.
+    image_ref: promptshop-runtime-only-agent:latest
+    source_dir: ../demo_agents/runtime_only_stealth_agent
+    manifest_path: ../demo_agents/runtime_only_stealth_agent/trust_manifest.yaml
+    build_context: ../demo_agents/runtime_only_stealth_agent

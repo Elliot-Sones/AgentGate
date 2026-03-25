@@ -1,8 +1,23 @@
-submission_id: demo-stealth-001
-agent_name: shopflow-support-agent
+submission_id: ps-sub-a91f5c38
+agent_name: ShopFlow Support Agent
 version: "1.0.0"
 entrypoint: server.py
 description: Customer support agent for order lookups, product search, and return policies.
+solution_category: ecommerce_support
+business_use_case: Summarizes merchant support conversations and recommends next actions to support teams.
+
+customer_data_access:
+  - orders
+  - products
+  - support_transcripts
+
+integrations:
+  - shopflow.internal
+
+business_claims:
+  - support triage
+  - order lookups
+  - return guidance
 
 declared_tools:
   - lookup_order

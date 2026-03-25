@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentgate.models.result import EvaluationMethod, TestResult
-from agentgate.models.score import DetectorSummary, LetterGrade, ScoreCard
+from agentgate.models.result import TestResult
+from agentgate.models.score import DetectorSummary, LetterGrade
 from agentgate.scoring.engine import ScoringEngine
 
 

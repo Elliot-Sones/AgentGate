@@ -11,6 +11,7 @@ from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
 
 class RuntimeEgressCheck(BaseTrustCheck):
     check_id = "runtime_egress"
+    description = "Checks observed network destinations against declared domains and allowlists."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         findings: list[TrustFinding] = []
@@ -22,8 +23,8 @@ class RuntimeEgressCheck(BaseTrustCheck):
                     category=TrustCategory.EGRESS,
                     severity=TrustSeverity.MEDIUM,
                     passed=False,
-                    summary="Runtime egress check requires runtime sandbox traces.",
-                    recommendation="Enable runtime checks and ensure image runs in the sandbox.",
+                    summary="Runtime egress check requires hosted runtime traces.",
+                    recommendation="Run the hosted runtime check against a live deployed agent URL.",
                 )
             ]
 
@@ -88,7 +89,7 @@ class RuntimeEgressCheck(BaseTrustCheck):
                     ),
                     recommendation=(
                         "Treat egress verdict as provisional and instrument runtime network capture "
-                        "for stronger evidence."
+                        "for stronger evidence from the hosted deployment."
                     ),
                 )
             )

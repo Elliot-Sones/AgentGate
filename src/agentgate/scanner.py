@@ -5,9 +5,10 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from agentgate.adapters.base import AdapterResponse, AgentAdapter
+from agentgate.adapters.base import AgentAdapter
 from agentgate.adapters.http import HTTPAdapter
 from agentgate.attacker.adaptive import ATTACK_OBJECTIVES, AdaptiveAttacker
+from agentgate.progress import ScanProgressDisplay
 from agentgate.attacker.agent import AttackerAgent
 from agentgate.attacker.strategies import STRATEGY_REGISTRY
 from agentgate.config import ScanConfig
@@ -59,10 +60,12 @@ class Scanner:
         agent_config: AgentConfig,
         scan_config: ScanConfig,
         adapter: AgentAdapter | None = None,
+        progress: ScanProgressDisplay | None = None,
     ) -> None:
         self.agent_config = agent_config
         self.scan_config = scan_config
         self._adapter = adapter
+        self._progress = progress
 
     async def _probe(self, adapter: AgentAdapter) -> None:
         """Send a health-check message before scanning.
@@ -214,6 +217,12 @@ class Scanner:
         detector_cls = DETECTOR_REGISTRY[name]
         detector = detector_cls(adapter=adapter, config=self.scan_config)
 
+        if self._progress is not None:
+            self._progress.mark_running(name)
+            detector._on_test_progress = lambda done, total: self._progress.update_tests(
+                name, done, total=total
+            )
+
         try:
             detector_results = await detector.run(self.agent_config)
 
@@ -233,10 +242,23 @@ class Scanner:
                 )
                 detector_results.extend(adaptive_results)
 
+            # Count per-test-case (matching ScoringEngine logic)
+            by_case: dict[str, list[TestResult]] = {}
+            for r in detector_results:
+                by_case.setdefault(r.test_case_id, []).append(r)
+            cases_run = len(by_case)
+            cases_failed = sum(
+                1 for case_results in by_case.values()
+                if any(not r.passed for r in case_results)
+            )
+            if self._progress is not None:
+                self._progress.mark_completed(name, total=cases_run, failed=cases_failed)
             logger.info("Detector %s completed: %d results", name, len(detector_results))
             return name, detector_results, None
 
         except Exception as exc:
+            if self._progress is not None:
+                self._progress.mark_error(name, str(exc))
             logger.error("Detector %s failed: %s", name, exc, exc_info=True)
             return name, [], str(exc)
 

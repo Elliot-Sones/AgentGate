@@ -7,12 +7,37 @@ from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
 
 class StaticManifestCheck(BaseTrustCheck):
     check_id = "static_manifest"
+    description = "Validates the trust manifest has required fields and correct structure."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         findings: list[TrustFinding] = []
         ctx.load_manifest()
 
         if ctx.manifest is None:
+            missing_manifest = (
+                ctx.manifest_path is None
+                or not ctx.manifest_path.exists()
+                or "not found" in (ctx.manifest_error or "").lower()
+                or "no manifest path provided" in (ctx.manifest_error or "").lower()
+            )
+            if missing_manifest:
+                return [
+                    self.finding(
+                        title="Trust manifest not provided",
+                        category=TrustCategory.DECLARATION,
+                        severity=TrustSeverity.INFO,
+                        passed=True,
+                        summary=(
+                            "No trust manifest was supplied. AgentGate will rely on the "
+                            "generated runtime profile and source analysis for this scan."
+                        ),
+                        recommendation=(
+                            "Provide a trust manifest to improve declared tools, domains, "
+                            "permissions, and buyer-facing descriptions."
+                        ),
+                        location_path=str(ctx.manifest_path) if ctx.manifest_path else "",
+                    )
+                ]
             findings.append(
                 self.finding(
                     title="Trust manifest missing or unreadable",
@@ -51,6 +76,22 @@ class StaticManifestCheck(BaseTrustCheck):
                     passed=False,
                     summary="declared_external_domains must be a list of domains.",
                     recommendation="Use list format for declared_external_domains.",
+                    location_path=str(ctx.manifest_path) if ctx.manifest_path else "",
+                )
+            )
+
+        for error in ctx.config.dependency_validation_errors:
+            findings.append(
+                self.finding(
+                    title="Manifest dependency configuration is invalid",
+                    category=TrustCategory.DECLARATION,
+                    severity=TrustSeverity.HIGH,
+                    passed=False,
+                    summary=error,
+                    recommendation=(
+                        "Use only approved dependency services and ensure "
+                        "'dependencies' and 'runtime_env' use object/list syntax."
+                    ),
                     location_path=str(ctx.manifest_path) if ctx.manifest_path else "",
                 )
             )

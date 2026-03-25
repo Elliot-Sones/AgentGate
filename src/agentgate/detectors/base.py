@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 from agentgate.adapters.base import AdapterResponse, AgentAdapter
 from agentgate.config import ScanConfig
@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 class BaseDetector(ABC):
     """Abstract base class for all security detectors."""
+
+    _on_test_progress: Callable[[int, int], None] | None = None
 
     def __init__(self, adapter: AgentAdapter, config: ScanConfig) -> None:
         self.adapter = adapter
@@ -67,6 +69,9 @@ class BaseDetector(ABC):
                 await self.adapter.reset()
 
             results.append((test_case, responses))
+
+            if self._on_test_progress is not None:
+                self._on_test_progress(len(results), len(test_cases))
 
         return results
 

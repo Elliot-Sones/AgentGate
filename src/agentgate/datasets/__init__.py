@@ -26,10 +26,13 @@ def load_payloads(category: str) -> list[dict]:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        # Support both flat list and grouped format
+        # The "prompts" key holds the actual payload dicts.
+        # Fall back to collecting all list-of-dict values.
+        if "prompts" in data and isinstance(data["prompts"], list):
+            return data["prompts"]
         payloads: list[dict] = []
         for key, value in data.items():
-            if isinstance(value, list):
+            if isinstance(value, list) and value and isinstance(value[0], dict):
                 payloads.extend(value)
         return payloads if payloads else [data]
     return []

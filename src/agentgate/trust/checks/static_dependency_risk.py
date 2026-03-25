@@ -23,6 +23,7 @@ SUSPICIOUS_PACKAGE_NAMES = {
 
 class StaticDependencyRiskCheck(BaseTrustCheck):
     check_id = "static_dependency_risk"
+    description = "Checks Python dependencies for known malicious or vulnerable packages."
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         source = ctx.source_dir

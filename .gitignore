@@ -21,3 +21,17 @@ insights_agent_report.*
 todo.md
 CLAUDE.md
 index.md
+.gstack/
+benchmark_output/
+trust_artifacts/
+trust_scan_report.json
+run_demo.sh
+
+# Root-level report artifacts
+demo_agent_report.*
+demo___agent_report.*
+
+# Demo recordings
+*.mp4
+agentgate_demo.gif
+agentgate_progress_demo.gif

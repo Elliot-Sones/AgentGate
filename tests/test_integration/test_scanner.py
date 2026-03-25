@@ -10,7 +10,7 @@ from agentgate.adapters.base import AdapterResponse
 from agentgate.adapters.mock import MockAdapter
 from agentgate.config import ScanBudget, ScanConfig
 from agentgate.models.agent import AgentConfig
-from agentgate.models.result import EvaluationMethod, TestResult
+from agentgate.models.result import EvaluationMethod
 from agentgate.models.score import LetterGrade
 from agentgate.models.test_case import AttackVector, TestCase
 from agentgate.scanner import ProbeError, Scanner
