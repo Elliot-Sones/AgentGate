@@ -36,9 +36,13 @@ def test_adaptive_probing_used_when_api_key_present(tmp_path: Path) -> None:
             return_value=mock_orchestrator,
         ),
     ):
-        probe_responses, reports = runner._probe_adaptive(MagicMock())
+        probe_responses, reports, probing_mode, fallback_reason = runner._probe_adaptive(
+            MagicMock()
+        )
 
     mock_orchestrator.run.assert_called_once()
+    assert probing_mode == "adaptive"
+    assert fallback_reason == ""
 
 
 def test_fallback_to_static_probes_without_api_key(tmp_path: Path) -> None:
@@ -97,6 +101,36 @@ def test_adaptive_probing_mode_tracked(tmp_path: Path) -> None:
         runner.run_profile(profile="hosted", canary_profile="standard", artifact_dir=artifact_dir)
 
     assert runner.probing_mode == "adaptive"
+
+
+def test_adaptive_probing_fallback_tracks_static_mode(tmp_path: Path) -> None:
+    runner = _make_runner(tmp_path, adaptive_api_key="sk-test-key")
+
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+
+    with (
+        patch(
+            "agentgate.trust.runtime.hosted_runner.HostedRuntimeRunner._probe_static",
+            return_value=[],
+        ),
+        patch(
+            "agentgate.trust.runtime.adaptive.orchestrator.AdaptiveProbeOrchestrator",
+            side_effect=RuntimeError("llm unavailable"),
+        ),
+        patch(
+            "agentgate.trust.runtime.hosted_runner.HostedRuntimeRunner._fetch_railway_logs",
+            return_value="",
+        ),
+        patch(
+            "agentgate.trust.runtime.hosted_runner.HostedRuntimeRunner._discover_railway_context",
+            return_value=None,
+        ),
+    ):
+        runner.run_profile(profile="hosted", canary_profile="standard", artifact_dir=artifact_dir)
+
+    assert runner.probing_mode == "static"
+    assert runner.adaptive_fallback_reason == "llm unavailable"
 
 
 def test_static_probing_mode_tracked(tmp_path: Path) -> None:

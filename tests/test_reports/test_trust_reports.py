@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agentgate.models.score import DetectorSummary, LetterGrade, ScoreCard
 from agentgate.reports.trust_html_report import TrustHTMLReport
 from agentgate.reports.trust_json_report import TrustJSONReport
 from agentgate.trust.models import (
@@ -83,6 +84,11 @@ def _sample_result() -> TrustScanResult:
                 "telemetry-collector.attacker.example",
             ],
             "observed_tools": ["lookup_order", "search_products"],
+            "hosted_runtime_context": {
+                "probing_mode": "static",
+                "probe_count": 4,
+                "railway_log_lines": 12,
+            },
         },
         artifacts_manifest=[],
         submission_support=SubmissionSupport(
@@ -120,6 +126,24 @@ def _sample_result() -> TrustScanResult:
     )
 
 
+def _sample_security_scorecard() -> ScoreCard:
+    return ScoreCard(
+        grade=LetterGrade.C,
+        total_tests_run=12,
+        total_tests_passed=9,
+        total_tests_failed=3,
+        pass_rate=0.75,
+        detectors=[
+            DetectorSummary(
+                name="prompt_injection",
+                tests_run=4,
+                tests_passed=3,
+                tests_failed=1,
+            )
+        ],
+    )
+
+
 def test_trust_json_report_includes_marketplace_summaries() -> None:
     report = TrustJSONReport()
     data = report.generate(_sample_result(), profile="promptshop")
@@ -134,6 +158,9 @@ def test_trust_json_report_includes_marketplace_summaries() -> None:
     assert data["generated_runtime_profile"]["build_strategy"] == "dockerfile"
     assert data["presentation"]["report_title"] == "PromptShop Marketplace Trust Report"
     assert data["presentation"]["report_summary"]["coverage_summary"].startswith("Partial coverage")
+    assert data["testing_overview"]["mode"] == "static"
+    assert data["testing_overview"]["probe_count"] == 4
+    assert data["run_snapshot"]["headline"] == "This run used AgentGate's normal static hosted trust checks."
 
 
 def test_trust_presentation_includes_report_title_and_scope() -> None:
@@ -154,6 +181,10 @@ def test_trust_presentation_includes_report_title_and_scope() -> None:
     assert "Reviewed submitted source code and generated a runtime profile." in html
     assert "Deployed the submission into a temporary Railway environment before testing it." in html
     assert "Final decision: block." in html
+    assert "What Actually Happened In This Run" in html
+    assert "Hosted Runtime Testing" in html
+    assert "AgentGate used static hosted probing and sent 4 HTTP probe(s) to the live agent endpoint." in html
+    assert "Compared with an adaptive run: this used only the standard hosted probe set." in html
 
 
 def test_trust_html_report_renders_promptshop_sections(tmp_path: Path) -> None:
@@ -171,6 +202,7 @@ def test_trust_html_report_renders_promptshop_sections(tmp_path: Path) -> None:
     assert "How AgentGate Tested This Agent" in html
     assert "Decision and Findings" in html
     assert "Deployment Summary" in html
+    assert "Adaptive Specialist Breakdown" in html
 
     path = tmp_path / "trust.html"
     report.save(path)
@@ -203,3 +235,71 @@ def test_trust_reports_prefer_enrichment_when_present() -> None:
         "The agent reached an undeclared telemetry endpoint during hosted evaluation."
     )
     assert data["enrichment"]["generated_by_llm"] is True
+
+
+def test_trust_reports_surface_adaptive_specialist_details() -> None:
+    result = _sample_result()
+    result.metadata["hosted_runtime_context"] = {
+        "probing_mode": "adaptive",
+        "probe_count": 6,
+        "railway_log_lines": 0,
+        "adaptive_specialists": [
+            {
+                "specialist": "tool_exerciser",
+                "severity": "medium",
+                "findings": [],
+                "evidence": [],
+                "probes_sent": 2,
+                "probes_succeeded": 1,
+            },
+            {
+                "specialist": "data_boundary",
+                "severity": "high",
+                "findings": [{"title": "Boundary issue"}],
+                "evidence": [{"kind": "response"}],
+                "probes_sent": 1,
+                "probes_succeeded": 1,
+            },
+        ],
+    }
+
+    data = TrustJSONReport().generate(result, profile="promptshop")
+    html = TrustHTMLReport().generate(result, profile="promptshop")
+
+    assert data["testing_overview"]["mode"] == "adaptive"
+    assert data["testing_overview"]["specialist_count"] == 2
+    assert data["testing_overview"]["specialist_probes_sent"] == 3
+    assert data["testing_overview"]["specialist_findings"] == 1
+    assert data["run_snapshot"]["headline"] == (
+        "Adaptive probing materially changed this run by adding specialist-planned runtime probes."
+    )
+    assert "AgentGate used adaptive hosted probing with 2 specialist(s), sent 3 specialist probe(s), and surfaced 1 specialist finding(s)." in html
+    assert "Compared with a static run: this run sent additional specialist-generated probes tailored to the agent." in html
+    assert "tool_exerciser" in html
+    assert "data_boundary" in html
+    assert "Raised 1 finding(s) after 1 probe(s)." in html
+
+
+def test_combined_review_reports_use_security_and_trust_title() -> None:
+    result = _sample_result()
+    security = _sample_security_scorecard()
+
+    data = TrustJSONReport().generate(
+        result,
+        profile="standard",
+        security_scorecard=security,
+        security_duration=12.5,
+    )
+    html = TrustHTMLReport().generate(
+        result,
+        profile="standard",
+        security_scorecard=security,
+        security_duration=12.5,
+    )
+
+    assert data["scan_type"] == "review"
+    assert data["security_scorecard"]["grade"] == "C"
+    assert data["security_duration_seconds"] == 12.5
+    assert data["presentation"]["report_title"] == "AgentGate Security + Trust Review Report"
+    assert "AgentGate Security + Trust Review Report" in html
+    assert "Security Scan" in html

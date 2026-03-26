@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import anthropic
@@ -56,7 +57,11 @@ class AdaptiveProbeOrchestrator:
     def _get_client(self) -> anthropic.Anthropic:
         return anthropic.Anthropic(api_key=self._api_key)
 
-    def run(self, bundle: ContextBundle) -> tuple[list[dict], list[SpecialistReport]]:
+    def run(
+        self,
+        bundle: ContextBundle,
+        log_fetcher: Callable[[], str] | None = None,
+    ) -> tuple[list[dict], list[SpecialistReport]]:
         client = self._get_client()
         try:
             profile_prompt = self._build_profile_prompt(bundle)
@@ -74,7 +79,7 @@ class AdaptiveProbeOrchestrator:
 
         all_reports: list[SpecialistReport] = []
         for phase in plan.phases:
-            phase_reports = self._execute_phase(phase, bundle)
+            phase_reports = self._execute_phase(phase, bundle, log_fetcher=log_fetcher)
             all_reports.extend(phase_reports)
 
         probe_responses = self._collect_probe_responses(all_reports)
@@ -155,18 +160,27 @@ class AdaptiveProbeOrchestrator:
         except (json.JSONDecodeError, AttributeError, TypeError):
             return _DEFAULT_PLAN
 
-    def _execute_phase(self, phase: Phase, bundle: ContextBundle) -> list[SpecialistReport]:
+    def _execute_phase(
+        self,
+        phase: Phase,
+        bundle: ContextBundle,
+        log_fetcher: Callable[[], str] | None = None,
+    ) -> list[SpecialistReport]:
         if phase.parallel:
-            return self._execute_parallel(phase.agents, bundle)
-        return self._execute_sequential(phase.agents, bundle)
+            return self._execute_parallel(phase.agents, bundle, log_fetcher=log_fetcher)
+        return self._execute_sequential(phase.agents, bundle, log_fetcher=log_fetcher)
 
     def _execute_parallel(
-        self, agent_names: list[str], bundle: ContextBundle
+        self,
+        agent_names: list[str],
+        bundle: ContextBundle,
+        log_fetcher: Callable[[], str] | None = None,
     ) -> list[SpecialistReport]:
         reports: list[SpecialistReport] = []
         with ThreadPoolExecutor(max_workers=len(agent_names)) as executor:
             futures = {
-                executor.submit(self._run_specialist, name, bundle): name for name in agent_names
+                executor.submit(self._run_specialist, name, bundle, log_fetcher=log_fetcher): name
+                for name in agent_names
             }
             for future in as_completed(futures):
                 name = futures[future]
@@ -186,12 +200,15 @@ class AdaptiveProbeOrchestrator:
         return reports
 
     def _execute_sequential(
-        self, agent_names: list[str], bundle: ContextBundle
+        self,
+        agent_names: list[str],
+        bundle: ContextBundle,
+        log_fetcher: Callable[[], str] | None = None,
     ) -> list[SpecialistReport]:
         reports: list[SpecialistReport] = []
         for name in agent_names:
             try:
-                reports.append(self._run_specialist(name, bundle))
+                reports.append(self._run_specialist(name, bundle, log_fetcher=log_fetcher))
             except Exception as exc:
                 logger.warning("Specialist %s failed: %s", name, exc)
                 reports.append(
@@ -205,7 +222,12 @@ class AdaptiveProbeOrchestrator:
                 )
         return reports
 
-    def _run_specialist(self, name: str, bundle: ContextBundle) -> SpecialistReport:
+    def _run_specialist(
+        self,
+        name: str,
+        bundle: ContextBundle,
+        log_fetcher: Callable[[], str] | None = None,
+    ) -> SpecialistReport:
         specialist_cls = _SPECIALIST_REGISTRY.get(name)
         if specialist_cls is None:
             raise ValueError(f"Unknown specialist: {name}")
@@ -233,12 +255,29 @@ class AdaptiveProbeOrchestrator:
         generation_prompt = specialist.build_generation_prompt(sliced_bundle)
         generation_response = specialist.call_llm(client, generation_prompt, model=self._model)
         probes = specialist.parse_probe_requests(generation_response)
+        probes = specialist.normalize_probe_requests(probes, sliced_bundle)
+        if not probes:
+            logger.info(
+                "Adaptive specialist %s did not return executable probes; using fallback probes.",
+                name,
+            )
+            probes = specialist.fallback_probe_requests(sliced_bundle)
 
         # Execute probes via HTTP
         results = specialist.execute_probes(probes, bundle.live_url)
 
-        # Analyze results via LLM
-        analysis_prompt = specialist.build_analysis_prompt(sliced_bundle, results)
+        # Pull Railway logs after probes executed
+        railway_logs = ""
+        if log_fetcher is not None:
+            try:
+                railway_logs = log_fetcher()
+            except Exception as exc:
+                logger.warning("Log fetcher failed for specialist %s: %s", name, exc)
+
+        # Analyze results via LLM (with logs for ground-truth evidence)
+        analysis_prompt = specialist.build_analysis_prompt(
+            sliced_bundle, results, railway_logs=railway_logs
+        )
         analysis_response = specialist.call_llm(client, analysis_prompt, model=self._model)
         report = specialist.parse_analysis(analysis_response)
 
@@ -246,6 +285,7 @@ class AdaptiveProbeOrchestrator:
         report.probes_sent = len(probes)
         report.probes_succeeded = sum(1 for r in results if r.succeeded)
         report.probe_results = results
+        report.railway_logs = railway_logs
         return report
 
     def _collect_probe_responses(self, reports: list[SpecialistReport]) -> list[dict]:

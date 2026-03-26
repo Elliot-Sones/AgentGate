@@ -84,6 +84,35 @@ def test_build_extracts_openapi_from_probe_responses() -> None:
     assert bundle.openapi_spec == openapi_spec
 
 
+def test_build_extracts_openapi_from_full_body_when_snippet_is_truncated() -> None:
+    openapi_spec = {
+        "openapi": "3.1.0",
+        "paths": {"/search": {"post": {"requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}}}}},
+    }
+    probe_responses = [
+        {
+            "method": "GET",
+            "path": "/openapi.json",
+            "status_code": 200,
+            "body_snippet": '{"openapi": "3.1.0", "paths": {"truncated"',
+            "body_full": json.dumps(openapi_spec),
+            "content_type": "application/json",
+            "error": "",
+        }
+    ]
+
+    bundle = ContextBuilder.build(
+        source_dir=None,
+        manifest={"agent_name": "Test"},
+        static_findings=[],
+        live_url="https://agent.example.com",
+        canary_tokens={},
+        probe_responses=probe_responses,
+    )
+
+    assert bundle.openapi_spec == openapi_spec
+
+
 def test_build_slices_context_for_specialist() -> None:
     source_files = {
         "agent.py": "import os\nos.environ.get('SECRET')\n",
@@ -114,3 +143,20 @@ def test_slice_for_tool_exerciser() -> None:
 
     assert "agent.py" in sliced
     assert "server.py" in sliced
+
+
+def test_source_summary_preserves_specialist_ranked_order() -> None:
+    bundle = ContextBundle(
+        source_files={
+            "z_last.py": "important-content",
+            "a_first.py": "secondary-content",
+        },
+        manifest={"agent_name": "Test"},
+        static_findings=[],
+        live_url="https://agent.example.com",
+        canary_tokens={},
+    )
+
+    summary = bundle.source_summary(max_chars=500)
+
+    assert summary.index("--- z_last.py ---") < summary.index("--- a_first.py ---")

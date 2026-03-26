@@ -173,3 +173,157 @@ def test_orchestrator_run_specialist() -> None:
         report = orchestrator._run_specialist("tool_exerciser", bundle)
 
     assert report.specialist == "tool_exerciser"
+
+
+def test_orchestrator_run_specialist_uses_fallback_probes_when_llm_returns_none() -> None:
+    orchestrator = AdaptiveProbeOrchestrator(api_key="test-key")
+    bundle = ContextBundle(
+        source_files={},
+        manifest={"agent_name": "Mem0Like"},
+        static_findings=[],
+        live_url="https://agent.example.com",
+        canary_tokens={},
+        openapi_spec={
+            "openapi": "3.1.0",
+            "paths": {
+                "/search": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {"query": {"type": "string"}},
+                                        "required": ["query"],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        },
+    )
+
+    generation_response = '{"probes": []}'
+    analysis_response = json.dumps(
+        {"findings": [], "evidence": [], "severity": "info"}
+    )
+    mock_client = _mock_anthropic_client([generation_response, analysis_response])
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.text = '{"results": []}'
+    mock_http_response.headers = {"content-type": "application/json"}
+
+    with (
+        patch.object(orchestrator, "_get_client", return_value=mock_client),
+        patch("httpx.Client") as MockHTTPClient,
+    ):
+        mock_http = MagicMock()
+        mock_http.__enter__ = MagicMock(return_value=mock_http)
+        mock_http.__exit__ = MagicMock(return_value=False)
+        mock_http.request.return_value = mock_http_response
+        MockHTTPClient.return_value = mock_http
+
+        report = orchestrator._run_specialist("egress_prober", bundle)
+
+    assert report.specialist == "egress_prober"
+    assert report.probes_sent > 0
+    assert report.probe_results[0].path == "/search"
+
+
+def test_orchestrator_passes_logs_to_analysis() -> None:
+    orchestrator = AdaptiveProbeOrchestrator(api_key="test-key")
+    bundle = _make_bundle()
+
+    generation_response = json.dumps(
+        {
+            "probes": [
+                {
+                    "method": "POST",
+                    "path": "/api/v1/chat",
+                    "body": {"question": "Order #123?"},
+                    "rationale": "test",
+                }
+            ]
+        }
+    )
+    analysis_response = json.dumps(
+        {
+            "findings": ["Hidden tool call detected"],
+            "evidence": ["TOOL_CALL:hidden_exfil in logs"],
+            "severity": "critical",
+        }
+    )
+
+    mock_client = _mock_anthropic_client([generation_response, analysis_response])
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.text = '{"answer": "shipped"}'
+    mock_http_response.headers = {"content-type": "application/json"}
+
+    railway_logs = "TOOL_CALL:lookup_order\nTOOL_CALL:hidden_exfil\n"
+
+    with (
+        patch.object(orchestrator, "_get_client", return_value=mock_client),
+        patch("httpx.Client") as MockHTTPClient,
+    ):
+        mock_http = MagicMock()
+        mock_http.__enter__ = MagicMock(return_value=mock_http)
+        mock_http.__exit__ = MagicMock(return_value=False)
+        mock_http.request.return_value = mock_http_response
+        MockHTTPClient.return_value = mock_http
+
+        report = orchestrator._run_specialist(
+            "tool_exerciser", bundle, log_fetcher=lambda: railway_logs
+        )
+
+    assert report.railway_logs == railway_logs
+    # Verify the analysis prompt included the logs
+    analysis_call = mock_client.messages.create.call_args_list[-1]
+    analysis_prompt = analysis_call[1]["messages"][0]["content"]
+    assert "TOOL_CALL:hidden_exfil" in analysis_prompt
+
+
+def test_orchestrator_works_without_log_fetcher() -> None:
+    orchestrator = AdaptiveProbeOrchestrator(api_key="test-key")
+    bundle = _make_bundle()
+
+    generation_response = json.dumps(
+        {
+            "probes": [
+                {
+                    "method": "POST",
+                    "path": "/api/v1/chat",
+                    "body": {"question": "test"},
+                    "rationale": "test",
+                }
+            ]
+        }
+    )
+    analysis_response = json.dumps(
+        {"findings": [], "evidence": [], "severity": "info"}
+    )
+
+    mock_client = _mock_anthropic_client([generation_response, analysis_response])
+
+    mock_http_response = MagicMock()
+    mock_http_response.status_code = 200
+    mock_http_response.text = '{"answer": "ok"}'
+    mock_http_response.headers = {"content-type": "application/json"}
+
+    with (
+        patch.object(orchestrator, "_get_client", return_value=mock_client),
+        patch("httpx.Client") as MockHTTPClient,
+    ):
+        mock_http = MagicMock()
+        mock_http.__enter__ = MagicMock(return_value=mock_http)
+        mock_http.__exit__ = MagicMock(return_value=False)
+        mock_http.request.return_value = mock_http_response
+        MockHTTPClient.return_value = mock_http
+
+        report = orchestrator._run_specialist("tool_exerciser", bundle)
+
+    assert report.railway_logs == ""

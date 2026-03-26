@@ -5,6 +5,14 @@ from agentgate.trust.context import TrustScanContext
 from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
 from agentgate.trust.runtime.hosted_runner import HostedRuntimeRunner
 
+_SPECIALIST_CATEGORY_MAP = {
+    "tool_exerciser": TrustCategory.TOOL_INTEGRITY,
+    "egress_prober": TrustCategory.EGRESS,
+    "canary_stresser": TrustCategory.CANARY,
+    "data_boundary": TrustCategory.HIDDEN_BEHAVIOR,
+    "behavior_consistency": TrustCategory.HIDDEN_BEHAVIOR,
+}
+
 
 class HostedRuntimeCheck(BaseTrustCheck):
     check_id = "runtime_hosted"
@@ -75,7 +83,7 @@ class HostedRuntimeCheck(BaseTrustCheck):
             adaptive_model=ctx.config.adaptive_trust_model,
             source_dir=ctx.source_dir,
             manifest=ctx.manifest,
-            static_findings=[],
+            static_findings=list(ctx.config.dependency_inference_notes),
         )
         trace = runner.run_profile(
             profile="hosted",
@@ -85,12 +93,27 @@ class HostedRuntimeCheck(BaseTrustCheck):
         ctx.runtime_traces["hosted"] = trace
         if runner.runtime_context:
             ctx.hosted_runtime_context.update(runner.runtime_context)
+        specialist_reports = list(getattr(runner, "specialist_reports", []) or [])
+        adaptive_fallback_reason = str(
+            getattr(runner, "adaptive_fallback_reason", "") or ""
+        ).strip()
+        probing_mode = str(getattr(runner, "probing_mode", "") or "").strip().lower()
+        if specialist_reports:
+            findings.extend(self._specialist_findings(specialist_reports))
 
         if trace.status == "ok":
             summary_parts = [
                 f"Probed hosted agent at '{ctx.config.hosted_url}'.",
                 f"Captured {len(trace.probe_responses)} probe response(s).",
             ]
+            if probing_mode == "adaptive":
+                summary_parts.append(
+                    f"Adaptive specialist probing ran {len(specialist_reports)} specialist(s)."
+                )
+            elif adaptive_fallback_reason:
+                summary_parts.append(
+                    "Adaptive probing failed and the check fell back to static hosted probes."
+                )
             if trace.dependency_services:
                 summary_parts.append(
                     "Observed deployment-backed dependencies: "
@@ -118,3 +141,55 @@ class HostedRuntimeCheck(BaseTrustCheck):
                 )
             )
         return findings
+
+    def _specialist_findings(self, reports: list) -> list[TrustFinding]:
+        findings: list[TrustFinding] = []
+        for report in reports:
+            if not getattr(report, "findings", None):
+                continue
+
+            specialist_name = str(getattr(report, "specialist", "") or "adaptive_specialist")
+            evidence = [
+                str(item).strip()
+                for item in list(getattr(report, "evidence", []) or [])
+                if str(item).strip()
+            ]
+            findings.append(
+                self.finding(
+                    title=f"Adaptive specialist flagged {specialist_name}",
+                    category=_SPECIALIST_CATEGORY_MAP.get(
+                        specialist_name, TrustCategory.RUNTIME_INTEGRITY
+                    ),
+                    severity=self._map_specialist_severity(
+                        str(getattr(report, "severity", "info") or "info"),
+                        has_findings=True,
+                    ),
+                    passed=False,
+                    summary=" ".join(
+                        str(item).strip()
+                        for item in list(getattr(report, "findings", []) or [])
+                        if str(item).strip()
+                    )
+                    or f"{specialist_name} reported suspicious runtime behavior.",
+                    recommendation=(
+                        "Review the adaptive specialist evidence and confirm the behavior against "
+                        "the live hosted agent."
+                    ),
+                    observed=" | ".join(evidence),
+                )
+            )
+        return findings
+
+    @staticmethod
+    def _map_specialist_severity(level: str, *, has_findings: bool) -> TrustSeverity:
+        normalized = level.strip().lower()
+        mapping = {
+            "critical": TrustSeverity.CRITICAL,
+            "high": TrustSeverity.HIGH,
+            "medium": TrustSeverity.MEDIUM,
+            "low": TrustSeverity.LOW,
+            "info": TrustSeverity.INFO,
+        }
+        if has_findings and normalized == "info":
+            return TrustSeverity.LOW
+        return mapping.get(normalized, TrustSeverity.MEDIUM)

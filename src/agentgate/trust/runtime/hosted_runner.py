@@ -60,6 +60,7 @@ class HostedRuntimeRunner:
         self.runtime_context: dict[str, object] = {}
         self.probing_mode: str = ""
         self.specialist_reports: list = []
+        self.adaptive_fallback_reason: str = ""
 
     def run_profile(
         self,
@@ -71,11 +72,17 @@ class HostedRuntimeRunner:
         log_path = artifact_dir / f"runtime_{profile}.log"
 
         if self.adaptive_api_key:
-            probe_responses, self.specialist_reports = self._probe_adaptive(bank)
-            self.probing_mode = "adaptive"
+            (
+                probe_responses,
+                self.specialist_reports,
+                self.probing_mode,
+                self.adaptive_fallback_reason,
+            ) = self._probe_adaptive(bank)
         else:
             probe_responses = self._probe_static(bank)
             self.probing_mode = "static"
+            self.specialist_reports = []
+            self.adaptive_fallback_reason = ""
 
         railway_logs = self._fetch_railway_logs()
         discovery = self._discover_railway_context()
@@ -110,7 +117,22 @@ class HostedRuntimeRunner:
             "host": urlparse(self.base_url).hostname or "",
             "probe_count": len(probe_responses),
             "railway_log_lines": len([line for line in railway_logs.splitlines() if line.strip()]),
+            "probing_mode": self.probing_mode,
         }
+        if self.adaptive_fallback_reason:
+            self.runtime_context["adaptive_fallback_reason"] = self.adaptive_fallback_reason
+        if self.specialist_reports:
+            self.runtime_context["adaptive_specialists"] = [
+                {
+                    "specialist": report.specialist,
+                    "severity": report.severity,
+                    "findings": list(report.findings),
+                    "evidence": list(report.evidence),
+                    "probes_sent": report.probes_sent,
+                    "probes_succeeded": report.probes_succeeded,
+                }
+                for report in self.specialist_reports
+            ]
         if discovery is not None:
             self.runtime_context.update(
                 {
@@ -126,7 +148,7 @@ class HostedRuntimeRunner:
 
         return trace
 
-    def _probe_adaptive(self, bank: CanaryBank) -> tuple[list[dict], list]:
+    def _probe_adaptive(self, bank: CanaryBank) -> tuple[list[dict], list, str, str]:
         """Run adaptive per-agent probing using the AdaptiveProbeOrchestrator."""
         try:
             from agentgate.trust.runtime.adaptive.context_builder import ContextBuilder
@@ -148,14 +170,17 @@ class HostedRuntimeRunner:
                 api_key=self.adaptive_api_key,
                 model=self.adaptive_model,
             )
-            adaptive_responses, specialist_reports = orchestrator.run(bundle)
+            adaptive_responses, specialist_reports = orchestrator.run(
+                bundle,
+                log_fetcher=self._fetch_railway_logs,
+            )
 
             # Merge: static first, then adaptive
             all_responses = static_responses + adaptive_responses
-            return all_responses, specialist_reports
+            return all_responses, specialist_reports, "adaptive", ""
         except Exception as exc:
             logger.warning("Adaptive probing failed, falling back to static: %s", exc)
-            return self._probe_static(bank), []
+            return self._probe_static(bank), [], "static", str(exc)
 
     def _probe_static(self, bank: CanaryBank) -> list[dict]:
         """Run the original static probe plan."""
@@ -174,15 +199,20 @@ class HostedRuntimeRunner:
                     body = {"message": "AgentGate hosted probe"}
                 try:
                     response = client.request(method, url, json=body, headers=headers)
+                    body_text = response.text
+                    body_snippet = body_text[:_MAX_BODY_SNIPPET]
+                    payload: dict[str, object] = {
+                        "method": method,
+                        "path": path,
+                        "status_code": response.status_code,
+                        "body_snippet": body_snippet,
+                        "content_type": response.headers.get("content-type", ""),
+                        "error": "",
+                    }
+                    if path == "/openapi.json":
+                        payload["body_full"] = body_text
                     responses.append(
-                        {
-                            "method": method,
-                            "path": path,
-                            "status_code": response.status_code,
-                            "body_snippet": response.text[:_MAX_BODY_SNIPPET],
-                            "content_type": response.headers.get("content-type", ""),
-                            "error": "",
-                        }
+                        payload
                     )
                 except Exception as exc:
                     responses.append(

@@ -83,6 +83,17 @@ def test_specialist_report_has_findings() -> None:
     assert report.has_findings is True
 
 
+def test_specialist_report_stores_railway_logs() -> None:
+    report = SpecialistReport(
+        specialist="tool_exerciser",
+        probes_sent=1,
+        probes_succeeded=1,
+        railway_logs="TOOL_CALL:lookup_order\nhttpx.get('https://attacker.example')",
+    )
+    assert "TOOL_CALL:lookup_order" in report.railway_logs
+    assert report.railway_logs != ""
+
+
 def test_specialist_report_no_findings() -> None:
     report = SpecialistReport(
         specialist="tool_exerciser",

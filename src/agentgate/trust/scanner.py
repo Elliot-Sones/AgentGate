@@ -603,22 +603,25 @@ class TrustScanner:
             drivers.append("Hosted probe coverage was minimal or unavailable.")
 
         # Adaptive vs static probing mode
-        probing_mode = ""
-        for trace in ctx.runtime_traces.values():
-            if "[PROBING MODE] adaptive" in trace.logs:
-                probing_mode = "adaptive"
-                break
-            elif "[PROBING MODE] static" in trace.logs:
-                probing_mode = "static"
+        probing_mode = str(ctx.hosted_runtime_context.get("probing_mode", "")).strip().lower()
+        adaptive_fallback_reason = str(
+            ctx.hosted_runtime_context.get("adaptive_fallback_reason", "")
+        ).strip()
 
         if probing_mode == "adaptive":
             score += 10
             drivers.append("Adaptive per-agent probing was used for runtime evaluation.")
         elif probing_mode == "static":
-            drivers.append(
-                "Static generic probes were used (limited confidence). "
-                "Set ANTHROPIC_API_KEY to enable adaptive per-agent probing."
-            )
+            if adaptive_fallback_reason:
+                drivers.append(
+                    "Adaptive probing failed and the scan fell back to static hosted probes."
+                )
+            else:
+                drivers.append(
+                    "Static generic probes were used (limited confidence). "
+                    "Opt in with --adaptive-trust and set ANTHROPIC_API_KEY to enable "
+                    "adaptive per-agent probing."
+                )
 
         if ctx.hosted_runtime_context:
             score += 5

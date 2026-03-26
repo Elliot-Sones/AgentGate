@@ -160,10 +160,12 @@ def _extract_openapi(probe_responses: list[dict]) -> dict | None:
         if (
             response.get("path") == "/openapi.json"
             and response.get("status_code") == 200
-            and response.get("body_snippet")
         ):
+            payload = response.get("body_full") or response.get("body_snippet")
+            if not payload:
+                continue
             try:
-                spec = json.loads(response["body_snippet"])
+                spec = json.loads(payload)
                 if isinstance(spec, dict) and "openapi" in spec:
                     return spec
             except (json.JSONDecodeError, TypeError):

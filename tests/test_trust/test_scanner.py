@@ -9,6 +9,7 @@ from agentgate.trust.config import TrustScanConfig
 from agentgate.trust.context import TrustScanContext
 from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity, TrustVerdict
 from agentgate.trust.runtime.railway_executor import RailwayExecutionResult
+from agentgate.trust.models import CoverageSummary
 from agentgate.trust.scanner import TrustScanner
 
 
@@ -271,3 +272,24 @@ async def test_trust_scanner_can_deploy_into_reusable_pool(
     assert captured["pool_workspace"] == str(pool_dir.resolve())
     assert captured["pool_environment"] == "agentgate-pool"
     assert captured["pool_service"] == "pooled-agent"
+
+
+def test_confidence_summary_does_not_credit_failed_adaptive_probe(tmp_path: Path) -> None:
+    config = TrustScanConfig(
+        source_dir=tmp_path,
+        image_ref="",
+        manifest_path=None,
+        output_dir=tmp_path / "out",
+        hosted_url="https://agent.example.com",
+    )
+    ctx = TrustScanContext(config=config)
+    ctx.hosted_runtime_context = {
+        "probing_mode": "static",
+        "adaptive_fallback_reason": "llm unavailable",
+    }
+
+    coverage = CoverageSummary(level="partial")
+    confidence = TrustScanner._build_confidence_summary(ctx, coverage, "")
+
+    assert confidence.score < 100
+    assert any("fell back to static hosted probes" in driver for driver in confidence.drivers)

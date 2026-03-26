@@ -19,7 +19,7 @@ class ContextBundle:
     def source_summary(self, max_chars: int = 8000) -> str:
         parts: list[str] = []
         remaining = max_chars
-        for filename, content in sorted(self.source_files.items()):
+        for filename, content in self.source_files.items():
             header = f"--- {filename} ---\n"
             if remaining <= len(header):
                 break
@@ -79,6 +79,7 @@ class SpecialistReport:
     findings: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
     severity: str = "info"
+    railway_logs: str = ""
 
     @property
     def has_findings(self) -> bool:

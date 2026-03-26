@@ -10,6 +10,7 @@ from agentgate.trust.config import TrustScanConfig
 from agentgate.trust.context import TrustScanContext
 from agentgate.trust.models import TrustSeverity
 from agentgate.trust.runtime.trace_collector import RuntimeTrace
+from agentgate.trust.runtime.adaptive.models import SpecialistReport
 
 
 def _config(tmp_path: Path, **overrides) -> TrustScanConfig:
@@ -160,3 +161,44 @@ async def test_hosted_runtime_uses_hosted_runner(tmp_path: Path) -> None:
     assert ctx.runtime_traces["hosted"].status == "ok"
     assert ctx.hosted_runtime_context == {"railway_service": "demo-agent"}
     assert any(f.passed for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_hosted_runtime_surfaces_specialist_findings(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, hosted_url="https://agent.example.com")
+    cfg.adaptive_trust = True
+    cfg.anthropic_api_key = "sk-test"
+    ctx = TrustScanContext(config=cfg)
+    (tmp_path / "out").mkdir(parents=True, exist_ok=True)
+
+    mock_trace = RuntimeTrace(profile="hosted", status="ok")
+
+    class _DummyHostedRunner:
+        def __init__(self, *args, **kwargs):
+            self.runtime_context = {"probing_mode": "adaptive"}
+            self.probing_mode = "adaptive"
+            self.adaptive_fallback_reason = ""
+            self.specialist_reports = [
+                SpecialistReport(
+                    specialist="egress_prober",
+                    probes_sent=2,
+                    probes_succeeded=1,
+                    findings=["Undeclared external fetch behavior detected"],
+                    evidence=["Response referenced attacker.example"],
+                    severity="high",
+                )
+            ]
+
+        def run_profile(self, profile, canary_profile, artifact_dir):
+            return mock_trace
+
+    with patch(
+        "agentgate.trust.checks.runtime_hosted.HostedRuntimeRunner",
+        _DummyHostedRunner,
+    ):
+        findings = await HostedRuntimeCheck().run(ctx)
+
+    specialist_findings = [f for f in findings if f.title.startswith("Adaptive specialist flagged")]
+    assert len(specialist_findings) == 1
+    assert specialist_findings[0].passed is False
+    assert specialist_findings[0].severity == TrustSeverity.HIGH

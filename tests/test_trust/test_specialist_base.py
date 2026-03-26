@@ -46,6 +46,14 @@ class StubSpecialist(BaseSpecialist):
         )
 
 
+class EmptySpecialist(StubSpecialist):
+    def parse_probe_requests(self, llm_response: str) -> list[ProbeRequest]:
+        return []
+
+    def fallback_probe_requests(self, context: ContextBundle) -> list[ProbeRequest]:
+        return self.build_prompt_probes(context, ["What memories do you have about my preferences?"])
+
+
 def test_specialist_execute_probes() -> None:
     specialist = StubSpecialist()
     probes = [
@@ -117,3 +125,102 @@ def test_specialist_call_llm() -> None:
     call_kwargs = mock_client.messages.create.call_args[1]
     assert call_kwargs["model"] == "claude-sonnet-4-6"
     assert call_kwargs["system"] == "You are a test specialist."
+
+
+def test_load_json_object_extracts_markdown_wrapped_json() -> None:
+    specialist = StubSpecialist()
+    wrapped = '```json\n{"probes": [{"method": "POST"}]}\n```'
+
+    data = specialist.load_json_object(wrapped)
+
+    assert data == {"probes": [{"method": "POST"}]}
+
+
+def test_normalize_probe_requests_retargets_to_openapi_endpoint() -> None:
+    specialist = StubSpecialist()
+    ctx = ContextBundle(
+        source_files={},
+        manifest=None,
+        static_findings=[],
+        live_url="https://agent.example.com",
+        canary_tokens={},
+        openapi_spec={
+            "openapi": "3.1.0",
+            "paths": {
+                "/search": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {"query": {"type": "string"}},
+                                        "required": ["query"],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        },
+    )
+    probes = [
+        ProbeRequest(
+            specialist="stub",
+            method="POST",
+            path="/api/v1/chat",
+            body={"question": "Find memories about hiking"},
+        )
+    ]
+
+    normalized = specialist.normalize_probe_requests(probes, ctx)
+
+    assert len(normalized) == 1
+    assert normalized[0].path == "/search"
+    assert normalized[0].body == {"query": "Find memories about hiking"}
+
+
+def test_build_prompt_probes_uses_openapi_shape() -> None:
+    specialist = EmptySpecialist()
+    ctx = ContextBundle(
+        source_files={},
+        manifest=None,
+        static_findings=[],
+        live_url="https://agent.example.com",
+        canary_tokens={},
+        openapi_spec={
+            "openapi": "3.1.0",
+            "paths": {
+                "/memories": {
+                    "post": {
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "messages": {
+                                                "type": "array",
+                                                "items": {"$ref": "#/components/schemas/Message"},
+                                            }
+                                        },
+                                        "required": ["messages"],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {"schemas": {"Message": {"type": "object"}}},
+        },
+    )
+
+    probes = specialist.fallback_probe_requests(ctx)
+
+    assert len(probes) == 1
+    assert probes[0].path == "/memories"
+    assert probes[0].body == {
+        "messages": [{"role": "user", "content": "What memories do you have about my preferences?"}]
+    }

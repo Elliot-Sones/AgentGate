@@ -360,10 +360,12 @@ def security_scan(
     help="Keep the temporary Railway environment for debugging when deployment or runtime checks fail.",
 )
 @click.option(
-    "--no-adaptive-trust",
-    is_flag=True,
+    "--adaptive-trust/--no-adaptive-trust",
     default=False,
-    help="Disable adaptive per-agent probing even if ANTHROPIC_API_KEY is set.",
+    help=(
+        "Opt in to Anthropic-powered adaptive per-agent probing. "
+        "This sends source/runtime context to Anthropic if ANTHROPIC_API_KEY is set."
+    ),
 )
 @click.option("--quiet", is_flag=True, help="Suppress terminal output, only return exit code.")
 def trust_scan(
@@ -389,7 +391,7 @@ def trust_scan(
     agentdojo_suite: Path | None,
     strict_production_contract: bool,
     keep_environment_on_failure: bool,
-    no_adaptive_trust: bool,
+    adaptive_trust: bool,
     quiet: bool,
 ) -> None:
     """Run Phase 2 trust and malware-style analysis for marketplace submissions."""
@@ -442,7 +444,7 @@ def trust_scan(
         fail_on=fail_on,
         quiet=quiet,
         agentdojo_suite=agentdojo_suite,
-        adaptive_trust=not no_adaptive_trust,
+        adaptive_trust=adaptive_trust,
         hosted_url=url.strip(),
         railway_workspace_dir=(source_dir or Path.cwd()) if railway_discover else None,
         railway_workspace_id=railway_workspace_id.strip(),
@@ -673,10 +675,12 @@ def trust_scan(
     help="Exit code 1 if security pass rate below threshold (0.0-1.0).",
 )
 @click.option(
-    "--no-adaptive-trust",
-    is_flag=True,
+    "--adaptive-trust/--no-adaptive-trust",
     default=False,
-    help="Disable adaptive per-agent probing even if ANTHROPIC_API_KEY is set.",
+    help=(
+        "Opt in to Anthropic-powered adaptive per-agent probing. "
+        "This sends source/runtime context to Anthropic if ANTHROPIC_API_KEY is set."
+    ),
 )
 @click.option("--quiet", is_flag=True, help="Suppress terminal output.")
 def scan(
@@ -716,7 +720,7 @@ def scan(
     strict_production_contract: bool,
     keep_environment_on_failure: bool,
     fail_below: float | None,
-    no_adaptive_trust: bool,
+    adaptive_trust: bool,
     quiet: bool,
 ) -> None:
     """Scan an AI agent — runs security + trust analysis and produces a unified report."""
@@ -773,7 +777,7 @@ def scan(
         canary_profile=canary_profile,
         fail_on=fail_on,
         quiet=quiet,
-        adaptive_trust=not no_adaptive_trust,
+        adaptive_trust=adaptive_trust,
         hosted_url=resolved_url,
         railway_workspace_dir=(source_dir or Path.cwd())
         if railway_discover and resolved_url
@@ -994,7 +998,12 @@ def scan(
 
         if "json" in formats:
             jr = TrustJSONReport()
-            jr.generate(trust_result, profile=trust_config.report_profile)
+            jr.generate(
+                trust_result,
+                profile=trust_config.report_profile,
+                security_scorecard=scan_result.scorecard,
+                security_duration=scan_result.duration,
+            )
             json_path = output_dir / f"{safe}_review_report.json"
             jr.save(json_path)
             report_paths["json"] = str(json_path)

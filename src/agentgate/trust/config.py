@@ -28,7 +28,7 @@ class TrustScanConfig:
     fail_on: str = "manual_review"  # allow_with_warnings | manual_review | block
     quiet: bool = False
     agentdojo_suite: Path | None = None
-    adaptive_trust: bool = True
+    adaptive_trust: bool = False
     adaptive_trust_model: str = "claude-sonnet-4-6"
 
     # runtime knobs
