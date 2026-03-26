@@ -129,9 +129,7 @@ async def test_probe_fails_on_empty_response(
 ) -> None:
     """Probe should raise ProbeError when adapter returns empty text."""
     adapter = AsyncMock()
-    adapter.send = AsyncMock(
-        return_value=AdapterResponse(text="", status_code=200)
-    )
+    adapter.send = AsyncMock(return_value=AdapterResponse(text="", status_code=200))
 
     scanner = Scanner(
         adapter=adapter,
@@ -149,9 +147,7 @@ async def test_probe_fails_on_http_error_status(
 ) -> None:
     """Probe should raise ProbeError when status >= 400."""
     adapter = AsyncMock()
-    adapter.send = AsyncMock(
-        return_value=AdapterResponse(text="Forbidden", status_code=403)
-    )
+    adapter.send = AsyncMock(return_value=AdapterResponse(text="Forbidden", status_code=403))
 
     scanner = Scanner(
         adapter=adapter,
@@ -208,13 +204,9 @@ async def test_judge_triggers_on_low_confidence() -> None:
     )
 
     # Mock the LLMJudge.evaluate to avoid real API calls
-    with patch(
-        "agentgate.detectors.base.LLMJudge"
-    ) as MockJudge:
+    with patch("agentgate.detectors.base.LLMJudge") as MockJudge:
         mock_instance = MockJudge.return_value
-        mock_instance.evaluate = AsyncMock(
-            return_value=(True, 0.92, "Judge says pass")
-        )
+        mock_instance.evaluate = AsyncMock(return_value=(True, 0.92, "Judge says pass"))
 
         result = await scanner.run()
 
@@ -226,8 +218,7 @@ async def test_judge_triggers_on_low_confidence() -> None:
 
         # Some results may have been refined if they had low confidence
         judge_results = [
-            r for r in all_results
-            if r.evaluation_method == EvaluationMethod.LLM_JUDGE
+            r for r in all_results if r.evaluation_method == EvaluationMethod.LLM_JUDGE
         ]
 
         # The mock was called if there were low-confidence results
@@ -263,9 +254,7 @@ async def test_judge_mode_sends_all_results_to_judge() -> None:
 
     with patch("agentgate.detectors.base.LLMJudge") as MockJudge:
         mock_instance = MockJudge.return_value
-        mock_instance.evaluate = AsyncMock(
-            return_value=(True, 0.95, "Judge confirms pass")
-        )
+        mock_instance.evaluate = AsyncMock(return_value=(True, 0.95, "Judge confirms pass"))
 
         result = await scanner.run()
 
@@ -333,13 +322,9 @@ async def test_judge_handles_exception_gracefully() -> None:
         ),
     )
 
-    with patch(
-        "agentgate.detectors.base.LLMJudge"
-    ) as MockJudge:
+    with patch("agentgate.detectors.base.LLMJudge") as MockJudge:
         mock_instance = MockJudge.return_value
-        mock_instance.evaluate = AsyncMock(
-            side_effect=RuntimeError("API error")
-        )
+        mock_instance.evaluate = AsyncMock(side_effect=RuntimeError("API error"))
 
         # Should NOT raise — exceptions are caught
         result = await scanner.run()
@@ -524,8 +509,20 @@ async def test_adaptive_attacker_runs_pair_loop() -> None:
 
     # Mock the Anthropic client to return structured JSON responses
     mock_responses = [
-        MagicMock(content=[MagicMock(text='{"payload": "try this hack", "reasoning": "testing", "success": false}')]),
-        MagicMock(content=[MagicMock(text='{"payload": "refined hack", "reasoning": "still testing", "success": false}')]),
+        MagicMock(
+            content=[
+                MagicMock(
+                    text='{"payload": "try this hack", "reasoning": "testing", "success": false}'
+                )
+            ]
+        ),
+        MagicMock(
+            content=[
+                MagicMock(
+                    text='{"payload": "refined hack", "reasoning": "still testing", "success": false}'
+                )
+            ]
+        ),
     ]
 
     with patch("agentgate.attacker.adaptive.anthropic.Anthropic") as MockAnthropicCls:
@@ -626,15 +623,11 @@ async def test_attacker_routes_tests_to_correct_detectors() -> None:
         scan_config=config,
     )
 
-    with patch(
-        "agentgate.scanner.AttackerAgent"
-    ) as MockAttacker:
+    with patch("agentgate.scanner.AttackerAgent") as MockAttacker:
         mock_instance = MockAttacker.return_value
         mock_instance.generate_tests = AsyncMock(return_value=mock_test_cases)
 
-        result = await scanner._generate_attacker_tests(
-            ["prompt_injection", "data_exfiltration"]
-        )
+        result = await scanner._generate_attacker_tests(["prompt_injection", "data_exfiltration"])
 
         # prompt_injection should get 1 test case
         assert len(result.get("prompt_injection", [])) == 1

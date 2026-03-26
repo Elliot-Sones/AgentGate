@@ -58,6 +58,7 @@ class OpenAIChatAdapter(AgentAdapter):
                 if resp.status_code == 429:
                     retry_after = float(resp.headers.get("Retry-After", 2 ** (attempt + 1)))
                     import asyncio
+
                     await asyncio.sleep(retry_after)
                     continue
 
@@ -65,6 +66,7 @@ class OpenAIChatAdapter(AgentAdapter):
                     last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
                     if attempt < self.max_retries - 1:
                         import asyncio
+
                         await asyncio.sleep(2 ** (attempt + 1))
                         continue
                     return AdapterResponse(
@@ -140,9 +142,7 @@ class OpenAIChatAdapter(AgentAdapter):
                     )
                 )
             except Exception as e:
-                responses.append(
-                    AdapterResponse(text="", status_code=0, error=str(e))
-                )
+                responses.append(AdapterResponse(text="", status_code=0, error=str(e)))
 
         return responses
 

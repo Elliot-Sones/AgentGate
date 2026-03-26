@@ -8,16 +8,14 @@ from agentgate.trust.runtime.hosted_runner import HostedRuntimeRunner
 
 class HostedRuntimeCheck(BaseTrustCheck):
     check_id = "runtime_hosted"
-    description = "Probes the live hosted agent and collects runtime telemetry from its deployment context."
+    description = (
+        "Probes the live hosted agent and collects runtime telemetry from its deployment context."
+    )
 
     async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
         findings: list[TrustFinding] = []
 
-        if (
-            ctx.manifest is None
-            and not ctx.manifest_error
-            and ctx.manifest_path is not None
-        ):
+        if ctx.manifest is None and not ctx.manifest_error and ctx.manifest_path is not None:
             ctx.load_manifest()
 
         if ctx.source_dir is not None:
@@ -67,11 +65,17 @@ class HostedRuntimeCheck(BaseTrustCheck):
             railway_workspace_dir=ctx.config.railway_workspace_dir,
             railway_service=ctx.config.railway_service,
             railway_environment=ctx.config.railway_environment,
+            railway_project_token=ctx.config.railway_project_token,
             probe_paths=(
                 list(ctx.generated_runtime_profile.probe_paths)
                 if ctx.generated_runtime_profile is not None
                 else None
             ),
+            adaptive_api_key=(ctx.config.anthropic_api_key if ctx.config.adaptive_trust else ""),
+            adaptive_model=ctx.config.adaptive_trust_model,
+            source_dir=ctx.source_dir,
+            manifest=ctx.manifest,
+            static_findings=[],
         )
         trace = runner.run_profile(
             profile="hosted",

@@ -114,9 +114,7 @@ class InputValidationDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -142,29 +140,17 @@ class InputValidationDetector(BaseDetector):
 
             # Route evaluation by test type
             if test_case.name.startswith("XSS"):
-                result = self._evaluate_xss(
-                    test_case, response, text, text_lower, run_number
-                )
+                result = self._evaluate_xss(test_case, response, text, text_lower, run_number)
             elif test_case.name.startswith("SQL"):
-                result = self._evaluate_sql(
-                    test_case, response, text_lower, run_number
-                )
+                result = self._evaluate_sql(test_case, response, text_lower, run_number)
             elif test_case.name.startswith("Null byte"):
-                result = self._evaluate_crash_resistance(
-                    test_case, response, run_number
-                )
+                result = self._evaluate_crash_resistance(test_case, response, run_number)
             elif test_case.name.startswith("Unicode"):
-                result = self._evaluate_crash_resistance(
-                    test_case, response, run_number
-                )
+                result = self._evaluate_crash_resistance(test_case, response, run_number)
             elif test_case.name.startswith("Empty"):
-                result = self._evaluate_crash_resistance(
-                    test_case, response, run_number
-                )
+                result = self._evaluate_crash_resistance(test_case, response, run_number)
             else:
-                result = self._evaluate_crash_resistance(
-                    test_case, response, run_number
-                )
+                result = self._evaluate_crash_resistance(test_case, response, run_number)
 
             results.append(result)
 
@@ -179,9 +165,7 @@ class InputValidationDetector(BaseDetector):
         run_number: int,
     ) -> TestResult:
         # Check if XSS payload is reflected unsanitized
-        reflected_patterns = [
-            p for p in XSS_OUTPUT_PATTERNS if re.search(p, text_lower)
-        ]
+        reflected_patterns = [p for p in XSS_OUTPUT_PATTERNS if re.search(p, text_lower)]
 
         # Also check if the raw payload appears in the output
         payload_lower = test_case.payload.lower()
@@ -228,9 +212,7 @@ class InputValidationDetector(BaseDetector):
         text_lower: str,
         run_number: int,
     ) -> TestResult:
-        sql_indicators_found = [
-            ind for ind in SQL_OUTPUT_INDICATORS if ind in text_lower
-        ]
+        sql_indicators_found = [ind for ind in SQL_OUTPUT_INDICATORS if ind in text_lower]
 
         if sql_indicators_found:
             return TestResult(

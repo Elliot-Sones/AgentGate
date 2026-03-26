@@ -146,8 +146,21 @@ def _collect_dependency_names(source: Path) -> set[str]:
             match = req_re.match(line)
             if match:
                 token = match.group(1).lower()
-                if token not in {"import", "from", "def", "class", "if", "for", "return", "name",
-                                 "version", "description", "setup", "find_packages", "install_requires"}:
+                if token not in {
+                    "import",
+                    "from",
+                    "def",
+                    "class",
+                    "if",
+                    "for",
+                    "return",
+                    "name",
+                    "version",
+                    "description",
+                    "setup",
+                    "find_packages",
+                    "install_requires",
+                }:
                     names.add(token)
 
     return names

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -7,11 +8,14 @@ from urllib.parse import urlparse
 import httpx
 
 from agentgate.trust.runtime.canary_bank import CanaryBank
+from agentgate.trust.runtime.railway_auth import railway_cli_env
 from agentgate.trust.runtime.railway_discovery import (
     RailwayDiscoveryError,
     discover_railway_runtime,
 )
 from agentgate.trust.runtime.trace_collector import RuntimeTrace, TraceCollector
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_HOSTED_PROBES: tuple[tuple[str, str], ...] = (
     ("GET", "/"),
@@ -33,15 +37,29 @@ class HostedRuntimeRunner:
         railway_workspace_dir: Path | None = None,
         railway_service: str = "",
         railway_environment: str = "",
+        railway_project_token: str = "",
         probe_paths: list[str] | None = None,
+        adaptive_api_key: str = "",
+        adaptive_model: str = "claude-sonnet-4-6",
+        source_dir: Path | None = None,
+        manifest: dict | None = None,
+        static_findings: list[str] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.runtime_seconds = runtime_seconds
         self.railway_workspace_dir = railway_workspace_dir
         self.railway_service = railway_service
         self.railway_environment = railway_environment
+        self.railway_project_token = railway_project_token.strip()
         self.probe_paths = list(probe_paths or [])
+        self.adaptive_api_key = adaptive_api_key
+        self.adaptive_model = adaptive_model
+        self.source_dir = source_dir
+        self.manifest = manifest
+        self.static_findings = list(static_findings or [])
         self.runtime_context: dict[str, object] = {}
+        self.probing_mode: str = ""
+        self.specialist_reports: list = []
 
     def run_profile(
         self,
@@ -51,7 +69,14 @@ class HostedRuntimeRunner:
     ) -> RuntimeTrace:
         bank = CanaryBank(profile=canary_profile)
         log_path = artifact_dir / f"runtime_{profile}.log"
-        probe_responses = self._probe_live_agent(bank)
+
+        if self.adaptive_api_key:
+            probe_responses, self.specialist_reports = self._probe_adaptive(bank)
+            self.probing_mode = "adaptive"
+        else:
+            probe_responses = self._probe_static(bank)
+            self.probing_mode = "static"
+
         railway_logs = self._fetch_railway_logs()
         discovery = self._discover_railway_context()
 
@@ -69,11 +94,11 @@ class HostedRuntimeRunner:
         trace.inspect_user = "hosted"
         trace.telemetry_source = "logs"
         if discovery is not None:
-            trace.dependency_services = [dependency.service for dependency in discovery.dependencies]
+            trace.dependency_services = [
+                dependency.service for dependency in discovery.dependencies
+            ]
 
-        has_successful_probe = any(
-            response.get("status_code", 0) for response in probe_responses
-        )
+        has_successful_probe = any(response.get("status_code", 0) for response in probe_responses)
         if has_successful_probe or railway_logs.strip():
             trace.status = "ok"
         else:
@@ -92,14 +117,48 @@ class HostedRuntimeRunner:
                     "railway_project": discovery.project_name,
                     "railway_environment": discovery.environment_name,
                     "railway_service": discovery.service_name,
-                    "railway_dependencies": [dependency.service for dependency in discovery.dependencies],
+                    "railway_dependencies": [
+                        dependency.service for dependency in discovery.dependencies
+                    ],
                     "railway_public_domain": discovery.public_domain,
                 }
             )
 
         return trace
 
-    def _probe_live_agent(self, bank: CanaryBank) -> list[dict]:
+    def _probe_adaptive(self, bank: CanaryBank) -> tuple[list[dict], list]:
+        """Run adaptive per-agent probing using the AdaptiveProbeOrchestrator."""
+        try:
+            from agentgate.trust.runtime.adaptive.context_builder import ContextBuilder
+            from agentgate.trust.runtime.adaptive.orchestrator import AdaptiveProbeOrchestrator
+
+            # Run a quick static probe first to get OpenAPI spec
+            static_responses = self._probe_static(bank)
+
+            bundle = ContextBuilder.build(
+                source_dir=self.source_dir,
+                manifest=self.manifest,
+                static_findings=self.static_findings,
+                live_url=self.base_url,
+                canary_tokens=bank.tokens(),
+                probe_responses=static_responses,
+            )
+
+            orchestrator = AdaptiveProbeOrchestrator(
+                api_key=self.adaptive_api_key,
+                model=self.adaptive_model,
+            )
+            adaptive_responses, specialist_reports = orchestrator.run(bundle)
+
+            # Merge: static first, then adaptive
+            all_responses = static_responses + adaptive_responses
+            return all_responses, specialist_reports
+        except Exception as exc:
+            logger.warning("Adaptive probing failed, falling back to static: %s", exc)
+            return self._probe_static(bank), []
+
+    def _probe_static(self, bank: CanaryBank) -> list[dict]:
+        """Run the original static probe plan."""
         token_values = list(bank.tokens().values())
         headers = {}
         if token_values:
@@ -138,6 +197,10 @@ class HostedRuntimeRunner:
                     )
         return responses
 
+    # Keep the old name as an alias for backward compatibility (and tests)
+    def _probe_live_agent(self, bank: CanaryBank) -> list[dict]:
+        return self._probe_static(bank)
+
     def _probe_plan(self) -> list[tuple[str, str]]:
         planned: list[tuple[str, str]] = []
         seen: set[tuple[str, str]] = set()
@@ -150,7 +213,11 @@ class HostedRuntimeRunner:
             normalized = str(path).strip()
             if not normalized.startswith("/"):
                 continue
-            method = "POST" if any(token in normalized.lower() for token in ("/chat", "/search", "/query")) else "GET"
+            method = (
+                "POST"
+                if any(token in normalized.lower() for token in ("/chat", "/search", "/query"))
+                else "GET"
+            )
             candidate = (method, normalized)
             if candidate in seen:
                 continue
@@ -179,6 +246,7 @@ class HostedRuntimeRunner:
             proc = subprocess.run(
                 cmd,
                 cwd=str(self.railway_workspace_dir),
+                env=railway_cli_env(self.railway_project_token),
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -203,6 +271,7 @@ class HostedRuntimeRunner:
                 service=self.railway_service or None,
                 environment=self.railway_environment or None,
                 source_dir=None,
+                project_token=self.railway_project_token,
             )
         except RailwayDiscoveryError as exc:
             self.runtime_context["railway_discovery_error"] = str(exc)
@@ -216,6 +285,9 @@ class HostedRuntimeRunner:
         discovery,
     ) -> str:
         lines: list[str] = [f"[HOSTED TARGET] {self.base_url}"]
+
+        if self.probing_mode:
+            lines.append(f"[PROBING MODE] {self.probing_mode}")
 
         if discovery is not None:
             lines.append(
@@ -232,14 +304,14 @@ class HostedRuntimeRunner:
         for response in probe_responses:
             status = response.get("status_code", 0)
             error = response.get("error", "")
+            specialist = response.get("specialist", "")
+            prefix = f"[{specialist.upper()}] " if specialist else ""
             if error:
                 lines.append(
-                    f"[PROBE {response['method']} {response['path']}] ERROR {error}"
+                    f"{prefix}[PROBE {response['method']} {response['path']}] ERROR {error}"
                 )
                 continue
-            lines.append(
-                f"[PROBE {response['method']} {response['path']}] status={status}"
-            )
+            lines.append(f"{prefix}[PROBE {response['method']} {response['path']}] status={status}")
             snippet = str(response.get("body_snippet", "")).strip()
             content_type = str(response.get("content_type", "")).lower()
             if snippet and not _is_markup_content_type(content_type):

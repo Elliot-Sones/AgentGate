@@ -38,9 +38,7 @@ class ScanProgressDisplay:
     def __init__(self, names: list[str], *, mode: str = "scan") -> None:
         self._lock = threading.Lock()
         self._mode = mode  # "scan" or "trust"
-        self._items: dict[str, _ItemState] = {
-            name: _ItemState(name=name) for name in names
-        }
+        self._items: dict[str, _ItemState] = {name: _ItemState(name=name) for name in names}
         self._order = list(names)
 
     # -- public API (called from asyncio on main thread) --
@@ -85,9 +83,7 @@ class ScanProgressDisplay:
 
     # -- Rich renderable protocol --
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         with self._lock:
             if self._mode == "trust":
                 yield from self._render_trust()

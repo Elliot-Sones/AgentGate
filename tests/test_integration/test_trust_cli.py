@@ -98,6 +98,7 @@ def test_trust_scan_exit_code_0_when_below_threshold() -> None:
         )
     assert result.exit_code == 0
 
+
 def test_trust_scan_accepts_promptshop_report_profile() -> None:
     runner = CliRunner()
     mock_result = _make_result(TrustVerdict.ALLOW_CLEAN)
@@ -180,9 +181,12 @@ def test_trust_scan_can_generate_railway_manifest(tmp_path) -> None:
         async def run(self):
             return mock_result
 
-    with patch("agentgate.cli.discover_railway_runtime", return_value=discovery), patch(
-        "agentgate.cli.TrustScanner",
-        _DummyScanner,
+    with (
+        patch("agentgate.cli.discover_railway_runtime", return_value=discovery),
+        patch(
+            "agentgate.cli.TrustScanner",
+            _DummyScanner,
+        ),
     ):
         result = runner.invoke(
             cli,
@@ -230,9 +234,12 @@ def test_trust_scan_railway_discovery_skips_source_refinement_without_markers(tm
         async def run(self):
             return mock_result
 
-    with patch("agentgate.cli.discover_railway_runtime", side_effect=_discover), patch(
-        "agentgate.cli.TrustScanner",
-        _DummyScanner,
+    with (
+        patch("agentgate.cli.discover_railway_runtime", side_effect=_discover),
+        patch(
+            "agentgate.cli.TrustScanner",
+            _DummyScanner,
+        ),
     ):
         result = runner.invoke(
             cli,

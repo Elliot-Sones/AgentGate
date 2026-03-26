@@ -108,9 +108,7 @@ class SystemPromptLeakDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -151,11 +149,7 @@ class SystemPromptLeakDetector(BaseDetector):
                 leaks_found = filtered
 
             # Check for structural patterns suggesting raw prompt content
-            structural_matches = [
-                p
-                for p in STRUCTURAL_LEAK_PATTERNS
-                if re.search(p, text_lower)
-            ]
+            structural_matches = [p for p in STRUCTURAL_LEAK_PATTERNS if re.search(p, text_lower)]
 
             # Check response length — very long responses to prompt-leak
             # questions may contain actual prompt content

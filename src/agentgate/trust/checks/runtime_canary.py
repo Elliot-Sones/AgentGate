@@ -38,9 +38,7 @@ class RuntimeCanaryCheck(BaseTrustCheck):
                     category=TrustCategory.CANARY,
                     severity=TrustSeverity.CRITICAL,
                     passed=False,
-                    summary=(
-                        f"Profile '{profile}' referenced canary token(s): {', '.join(hits)}"
-                    ),
+                    summary=(f"Profile '{profile}' referenced canary token(s): {', '.join(hits)}"),
                     recommendation="Block submission and investigate secret access/exfiltration behavior.",
                     observed=", ".join(hits),
                 )

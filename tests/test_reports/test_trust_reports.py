@@ -132,6 +132,8 @@ def test_trust_json_report_includes_marketplace_summaries() -> None:
     assert data["coverage"]["level"] == "partial"
     assert data["confidence"]["score"] == 78
     assert data["generated_runtime_profile"]["build_strategy"] == "dockerfile"
+    assert data["presentation"]["report_title"] == "PromptShop Marketplace Trust Report"
+    assert data["presentation"]["report_summary"]["coverage_summary"].startswith("Partial coverage")
 
 
 def test_trust_presentation_includes_report_title_and_scope() -> None:
@@ -142,7 +144,13 @@ def test_trust_presentation_includes_report_title_and_scope() -> None:
     presentation_title = "PromptShop Marketplace Trust Report"
     html = TrustHTMLReport().generate(_sample_result(), profile="promptshop")
     assert presentation_title in html
+    assert "What This Report Means" in html
     assert "What AgentGate Did" in html
+    assert (
+        "AgentGate found a blocking issue or could not satisfy the production trust contract"
+        in html
+    )
+    assert "AgentGate deployed the submission into a temporary Railway environment." in html
     assert "Reviewed submitted source code and generated a runtime profile." in html
     assert "Deployed the submission into a temporary Railway environment before testing it." in html
     assert "Final decision: block." in html
@@ -156,12 +164,13 @@ def test_trust_html_report_renders_promptshop_sections(tmp_path: Path) -> None:
     assert "PromptShop Marketplace Trust Report" in html
     assert "BLOCKED" in html
     assert "Summary" in html
-    assert "Infrastructure" in html
-    assert "Findings" in html
+    assert "How It Was Tested" in html
+    assert "Decision & Findings" in html
     assert "What This Agent Does" in html
     assert "Reviewer Actions" in html
-    assert "Infrastructure and Runtime Evidence" in html
-    assert "Findings and Decision" in html
+    assert "How AgentGate Tested This Agent" in html
+    assert "Decision and Findings" in html
+    assert "Deployment Summary" in html
 
     path = tmp_path / "trust.html"
     report.save(path)
@@ -177,7 +186,7 @@ def test_trust_reports_prefer_enrichment_when_present() -> None:
         },
         reviewer_guidance=["Escalate to a marketplace reviewer."],
         buyer_disclosure=["This agent is currently under additional trust review."],
-        model="claude-3-5-haiku-latest",
+        model="claude-haiku-4-5-20251001",
         prompt_version="trust-report-enrichment-v1",
         generated_at="2026-03-25T00:00:00Z",
         generated_by_llm=True,
@@ -186,9 +195,7 @@ def test_trust_reports_prefer_enrichment_when_present() -> None:
     data = TrustJSONReport().generate(result, profile="promptshop")
 
     assert data["reviewer_summary"]["decision_notes"] == "LLM summary for reviewers."
-    assert data["reviewer_summary"]["required_actions"] == [
-        "Escalate to a marketplace reviewer."
-    ]
+    assert data["reviewer_summary"]["required_actions"] == ["Escalate to a marketplace reviewer."]
     assert data["listing_summary"]["buyer_summary"] == (
         "This agent is currently under additional trust review."
     )

@@ -127,7 +127,9 @@ class AgentDojoRunner:
         # Filter tasks if config specifies a subset
         if task_filter:
             filter_set = set(task_filter)
-            tasks = [t for t in tasks if getattr(t, "id", getattr(t, "task_id", None)) in filter_set]
+            tasks = [
+                t for t in tasks if getattr(t, "id", getattr(t, "task_id", None)) in filter_set
+            ]
 
         findings: list[TrustFinding] = []
         for task in tasks:

@@ -84,9 +84,7 @@ class Scanner:
         if response.error:
             raise ProbeError(f"Agent returned error: {response.error}")
         if response.status_code >= 400:
-            raise ProbeError(
-                f"Agent returned HTTP {response.status_code}: {response.text[:200]}"
-            )
+            raise ProbeError(f"Agent returned HTTP {response.status_code}: {response.text[:200]}")
         if not response.text.strip():
             raise ProbeError("Agent returned an empty response")
 
@@ -189,9 +187,7 @@ class Scanner:
         tc_results = await detector._refine_with_judge(tc_results, tc_lookup)
         return tc_results
 
-    async def _run_attacker_tests(
-        self, detector, test_cases: list[TestCase]
-    ) -> list[TestResult]:
+    async def _run_attacker_tests(self, detector, test_cases: list[TestCase]) -> list[TestResult]:
         """Execute and evaluate attacker-generated tests through a detector."""
         executed = await detector.execute(test_cases)
         results: list[TestResult] = []
@@ -229,17 +225,13 @@ class Scanner:
             # Run attacker-generated tests for this detector
             extra_tests = attacker_tests.get(name, [])
             if extra_tests:
-                attacker_results = await self._run_attacker_tests(
-                    detector, extra_tests
-                )
+                attacker_results = await self._run_attacker_tests(detector, extra_tests)
                 detector_results.extend(attacker_results)
 
             # Run adaptive PAIR-style attacks
             vector = AttackVector(name) if name in AttackVector._value2member_map_ else None
             if vector:
-                adaptive_results = await self._run_adaptive_attacks(
-                    adapter, detector, vector
-                )
+                adaptive_results = await self._run_adaptive_attacks(adapter, detector, vector)
                 detector_results.extend(adaptive_results)
 
             # Count per-test-case (matching ScoringEngine logic)
@@ -248,8 +240,7 @@ class Scanner:
                 by_case.setdefault(r.test_case_id, []).append(r)
             cases_run = len(by_case)
             cases_failed = sum(
-                1 for case_results in by_case.values()
-                if any(not r.passed for r in case_results)
+                1 for case_results in by_case.values() if any(not r.passed for r in case_results)
             )
             if self._progress is not None:
                 self._progress.mark_completed(name, total=cases_run, failed=cases_failed)
@@ -296,8 +287,7 @@ class Scanner:
 
             # Run all detectors in parallel
             tasks = [
-                self._run_single_detector(name, adapter, attacker_tests)
-                for name in valid_names
+                self._run_single_detector(name, adapter, attacker_tests) for name in valid_names
             ]
             completed = await asyncio.gather(*tasks)
 

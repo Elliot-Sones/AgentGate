@@ -49,9 +49,7 @@ class ScanBudget:
 class ScanConfig:
     """Global scan configuration."""
 
-    anthropic_api_key: str = field(
-        default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", "")
-    )
+    anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
     timeout_seconds: float = 30.0
     max_retries: int = 3
     retry_backoff_base: float = 2.0

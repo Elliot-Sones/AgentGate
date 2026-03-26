@@ -41,7 +41,12 @@ def build_dependency_runtime_env(
     if normalized == "neo4j":
         auth = merged_overrides.get("NEO4J_AUTH", "neo4j/mem0graph")
         auth_user, _, auth_password = auth.partition("/")
-        username = merged_overrides.get("NEO4J_USER") or merged_overrides.get("NEO4J_USERNAME") or auth_user or "neo4j"
+        username = (
+            merged_overrides.get("NEO4J_USER")
+            or merged_overrides.get("NEO4J_USERNAME")
+            or auth_user
+            or "neo4j"
+        )
         password = merged_overrides.get("NEO4J_PASSWORD") or auth_password or "mem0graph"
         return {
             "NEO4J_URI": f"bolt://{service_host}:7687",
@@ -68,7 +73,9 @@ def build_dependency_runtime_env(
 
     if normalized == "mysql":
         user = merged_overrides.get("MYSQL_USER", "root")
-        password = merged_overrides.get("MYSQL_PASSWORD") or merged_overrides.get("MYSQL_ROOT_PASSWORD", "agentgate_test")
+        password = merged_overrides.get("MYSQL_PASSWORD") or merged_overrides.get(
+            "MYSQL_ROOT_PASSWORD", "agentgate_test"
+        )
         database = merged_overrides.get("MYSQL_DATABASE", "app")
         return {
             "DATABASE_URL": f"mysql://{user}:{password}@{service_host}:3306/{database}",

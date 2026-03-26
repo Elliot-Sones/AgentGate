@@ -44,13 +44,15 @@ def test_submission_profile_best_effort_mode_does_not_block_without_dockerfile(
 
 
 def test_submission_profile_issues_platform_credentials_when_available(tmp_path: Path) -> None:
-    (tmp_path / "Dockerfile").write_text("FROM python:3.11\nEXPOSE 8000\nCMD [\"python\", \"app.py\"]\n")
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
     (tmp_path / "app.py").write_text(
         "\n".join(
             [
                 "import openai",
                 "from fastapi import FastAPI",
-                'OPENAI_API_KEY = \"\"',
+                'OPENAI_API_KEY = ""',
                 "app = FastAPI()",
             ]
         )
@@ -76,8 +78,12 @@ def test_submission_profile_issues_platform_credentials_when_available(tmp_path:
     assert profile.runtime_env_keys == ["PORT"]
 
 
-def test_submission_profile_ignores_dependency_names_in_manifest_integrations(tmp_path: Path) -> None:
-    (tmp_path / "Dockerfile").write_text("FROM python:3.11\nEXPOSE 8000\nCMD [\"python\", \"app.py\"]\n")
+def test_submission_profile_ignores_dependency_names_in_manifest_integrations(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
     (tmp_path / "app.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
 
     assessment, profile = build_submission_profile(

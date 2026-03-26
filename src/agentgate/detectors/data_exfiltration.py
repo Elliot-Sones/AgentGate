@@ -88,9 +88,7 @@ class DataExfiltrationDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -116,9 +114,7 @@ class DataExfiltrationDetector(BaseDetector):
             for pii_name, pattern in PII_PATTERNS.items():
                 matches = re.findall(pattern, text)
                 if matches:
-                    evidence_parts.append(
-                        f"{pii_name}: {len(matches)} match(es)"
-                    )
+                    evidence_parts.append(f"{pii_name}: {len(matches)} match(es)")
 
             # Check for credential patterns
             for cred_name, pattern in CREDENTIAL_PATTERNS.items():

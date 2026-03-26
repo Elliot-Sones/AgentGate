@@ -33,7 +33,9 @@ def test_filters_log_noise(collector: TraceCollector) -> None:
 
 
 def test_filters_file_extensions(collector: TraceCollector) -> None:
-    logs = "loading config.toml and main.py and requirements.txt and openapi.json and swagger-ui.css"
+    logs = (
+        "loading config.toml and main.py and requirements.txt and openapi.json and swagger-ui.css"
+    )
     trace = collector.collect(profile="review", logs=logs)
     for dest in trace.network_destinations:
         assert not dest.endswith((".py", ".toml", ".txt", ".json", ".css"))

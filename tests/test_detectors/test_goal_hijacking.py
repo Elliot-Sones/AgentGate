@@ -32,4 +32,6 @@ async def test_passes_hardened_agent(
 
     assert len(results) > 0
     failed = [r for r in results if not r.passed]
-    assert len(failed) == 0, f"Hardened agent should pass all goal hijacking tests, but {len(failed)} failed"
+    assert len(failed) == 0, (
+        f"Hardened agent should pass all goal hijacking tests, but {len(failed)} failed"
+    )

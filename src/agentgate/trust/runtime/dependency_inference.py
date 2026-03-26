@@ -137,9 +137,7 @@ def infer_runtime_dependencies(
     if not files:
         return existing_dependencies or [], existing_runtime_env or {}, []
 
-    existing_dependency_map = {
-        dep.service: dep for dep in (existing_dependencies or [])
-    }
+    existing_dependency_map = {dep.service: dep for dep in (existing_dependencies or [])}
     runtime_env = dict(existing_runtime_env or {})
     notes: list[str] = []
 
@@ -174,7 +172,11 @@ def infer_runtime_dependencies(
     dependencies = list(existing_dependency_map.values())
     seen_services = set(existing_dependency_map)
 
-    if "pgvector" in matches and "postgres" in existing_dependency_map and "pgvector" not in seen_services:
+    if (
+        "pgvector" in matches
+        and "postgres" in existing_dependency_map
+        and "pgvector" not in seen_services
+    ):
         upgraded: list[DependencySpec] = []
         for dependency in dependencies:
             if dependency.service == "postgres":

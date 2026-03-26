@@ -45,10 +45,34 @@ _LOG_NOISE = {
 _NOISE_PREFIXES = ("self.", "cls.", "os.", "sys.", "re.", "io.")
 
 # TLDs that are very unlikely to be real network destinations when seen in logs
-_CODE_TLDS = {"run", "load", "result", "send", "close", "start", "stop",
-              "read", "write", "call", "init", "get", "set", "put",
-              "post", "delete", "serve", "app", "log", "error",
-              "debug", "info", "warning", "client", "memory", "config"}
+_CODE_TLDS = {
+    "run",
+    "load",
+    "result",
+    "send",
+    "close",
+    "start",
+    "stop",
+    "read",
+    "write",
+    "call",
+    "init",
+    "get",
+    "set",
+    "put",
+    "post",
+    "delete",
+    "serve",
+    "app",
+    "log",
+    "error",
+    "debug",
+    "info",
+    "warning",
+    "client",
+    "memory",
+    "config",
+}
 
 _DESTINATION_EXCLUDED_PREFIXES = (
     "[PROBE ",
@@ -111,7 +135,8 @@ class TraceCollector:
                 destinations.add(token)
         destinations -= _LOG_NOISE
         destinations = {
-            d for d in destinations
+            d
+            for d in destinations
             if not d.endswith(
                 (
                     ".py",

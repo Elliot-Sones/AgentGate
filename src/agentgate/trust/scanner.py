@@ -83,9 +83,7 @@ class TrustScanner:
 
             if not self.config.hosted_url and ctx.source_dir is not None:
                 try:
-                    deployment = RailwayExecutor(
-                        workspace_id=self.config.railway_workspace_id,
-                    ).deploy_submission(
+                    deployment = self._build_executor().deploy_submission(
                         source_dir=ctx.source_dir,
                         dependencies=ctx.config.dependencies,
                         runtime_env=self._deployment_runtime_env(ctx),
@@ -151,13 +149,15 @@ class TrustScanner:
                         self._progress.mark_completed(check.check_id)
 
                 failed = any(not f.passed for f in check_findings)
-                check_records.append(CheckRecord(
-                    check_id=check.check_id,
-                    description=getattr(check, "description", ""),
-                    status=status,
-                    findings_count=len(check_findings),
-                    failed=failed,
-                ))
+                check_records.append(
+                    CheckRecord(
+                        check_id=check.check_id,
+                        description=getattr(check, "description", ""),
+                        status=status,
+                        findings_count=len(check_findings),
+                        failed=failed,
+                    )
+                )
 
                 findings.extend(check_findings)
                 if failed:
@@ -184,9 +184,7 @@ class TrustScanner:
                 and not self.config.keep_environment_on_failure
             ):
                 try:
-                    RailwayExecutor(
-                        workspace_id=self.config.railway_workspace_id,
-                    ).cleanup(ctx.deployment_result)
+                    self._build_executor().cleanup(ctx.deployment_result)
                 except Exception:  # pragma: no cover - cleanup best effort
                     logger.exception("Failed to cleanup temporary Railway deployment.")
 
@@ -227,7 +225,9 @@ class TrustScanner:
                 status="best_effort_hosted",
                 reason="",
                 detail="Running hosted analysis without source preflight.",
-                notes=["No source submission was provided, so build/deploy validation was skipped."],
+                notes=[
+                    "No source submission was provided, so build/deploy validation was skipped."
+                ],
             )
 
     def _apply_generated_profile(self, ctx: TrustScanContext) -> None:
@@ -260,7 +260,18 @@ class TrustScanner:
                 "public_url": deployment.public_url,
                 "dependency_services": list(deployment.dependency_services),
                 "issued_integrations": list(deployment.issued_integrations),
+                "deployment_notes": list(deployment.notes),
+                "reused_pool": deployment.reused_pool,
             }
+        )
+
+    def _build_executor(self) -> RailwayExecutor:
+        return RailwayExecutor(
+            workspace_id=self.config.railway_workspace_id,
+            project_token=self.config.railway_project_token,
+            pool_workspace_dir=self.config.railway_pool_workspace_dir,
+            pool_environment=self.config.railway_pool_environment,
+            pool_service_name=self.config.railway_pool_service or "submission-agent",
         )
 
     def _unsupported_submission_finding(self, ctx: TrustScanContext) -> TrustFinding | None:
@@ -384,18 +395,20 @@ class TrustScanner:
                     capabilities=trace.inspect_capabilities,
                     oom_killed=trace.inspect_oom_killed,
                 )
-            profiles.append(RuntimeProfile(
-                name=name,
-                network_mode=trace.inspect_network_mode,
-                status=trace.status,
-                network_destinations=trace.network_destinations,
-                internal_destinations=trace.internal_network_destinations,
-                tool_calls=trace.tool_calls,
-                process_events=trace.process_events,
-                canary_hits=trace.canary_hits,
-                probe_responses=trace.probe_responses,
-                inspect=inspect_data,
-            ))
+            profiles.append(
+                RuntimeProfile(
+                    name=name,
+                    network_mode=trace.inspect_network_mode,
+                    status=trace.status,
+                    network_destinations=trace.network_destinations,
+                    internal_destinations=trace.internal_network_destinations,
+                    tool_calls=trace.tool_calls,
+                    process_events=trace.process_events,
+                    canary_hits=trace.canary_hits,
+                    probe_responses=trace.probe_responses,
+                    inspect=inspect_data,
+                )
+            )
         return profiles
 
     @staticmethod
@@ -412,16 +425,16 @@ class TrustScanner:
         records: list[DependencyRecord] = []
         for spec in ctx.config.dependencies:
             svc_def = ALLOWED_SERVICES.get(spec.service)
-            records.append(DependencyRecord(
-                service=spec.service,
-                source="declared" if spec.service in manifest_deps else "inferred",
-                image=svc_def.image if svc_def else "",
-                port=svc_def.ports[0] if svc_def and svc_def.ports else 0,
-                healthy=True,
-                inference_note=next(
-                    (n for n in notes if spec.service in n), ""
-                ),
-            ))
+            records.append(
+                DependencyRecord(
+                    service=spec.service,
+                    source="declared" if spec.service in manifest_deps else "inferred",
+                    image=svc_def.image if svc_def else "",
+                    port=svc_def.ports[0] if svc_def and svc_def.ports else 0,
+                    healthy=True,
+                    inference_note=next((n for n in notes if spec.service in n), ""),
+                )
+            )
         return records
 
     @staticmethod
@@ -479,6 +492,7 @@ class TrustScanner:
         notes = []
         if deployment_error:
             notes.append(deployment_error)
+        notes.extend(result.notes)
         return DeploymentSummary(
             platform="railway",
             build_status="ready" if result.public_url else "failed",
@@ -525,9 +539,13 @@ class TrustScanner:
             level = "none"
 
         if ctx.manifest is None:
-            notes.append("No user trust manifest was provided; runtime profile was source-generated.")
+            notes.append(
+                "No user trust manifest was provided; runtime profile was source-generated."
+            )
         if ctx.source_dir is None:
-            notes.append("No source submission was provided, so build/deploy validation was skipped.")
+            notes.append(
+                "No source submission was provided, so build/deploy validation was skipped."
+            )
         if not ctx.runtime_traces:
             notes.append("No hosted runtime trace was captured.")
 
@@ -559,7 +577,10 @@ class TrustScanner:
         else:
             drivers.append("No user trust manifest was provided.")
 
-        if ctx.generated_runtime_profile is not None and ctx.generated_runtime_profile.http_supported:
+        if (
+            ctx.generated_runtime_profile is not None
+            and ctx.generated_runtime_profile.http_supported
+        ):
             score += 15
             drivers.append("Generated runtime profile identified an HTTP-serving agent shape.")
 
@@ -580,6 +601,24 @@ class TrustScanner:
             drivers.append("Hosted probe coverage exercised part of the expected runtime surface.")
         else:
             drivers.append("Hosted probe coverage was minimal or unavailable.")
+
+        # Adaptive vs static probing mode
+        probing_mode = ""
+        for trace in ctx.runtime_traces.values():
+            if "[PROBING MODE] adaptive" in trace.logs:
+                probing_mode = "adaptive"
+                break
+            elif "[PROBING MODE] static" in trace.logs:
+                probing_mode = "static"
+
+        if probing_mode == "adaptive":
+            score += 10
+            drivers.append("Adaptive per-agent probing was used for runtime evaluation.")
+        elif probing_mode == "static":
+            drivers.append(
+                "Static generic probes were used (limited confidence). "
+                "Set ANTHROPIC_API_KEY to enable adaptive per-agent probing."
+            )
 
         if ctx.hosted_runtime_context:
             score += 5

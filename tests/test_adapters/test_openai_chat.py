@@ -70,9 +70,7 @@ async def test_send_payload_shape(agent_cfg: AgentConfig) -> None:
 
 
 async def test_extracts_content_from_choices(agent_cfg: AgentConfig) -> None:
-    transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, json=_openai_response("world"))
-    )
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json=_openai_response("world")))
     adapter = OpenAIChatAdapter(agent_cfg)
     adapter._client = httpx.AsyncClient(transport=transport)
 
@@ -83,9 +81,7 @@ async def test_extracts_content_from_choices(agent_cfg: AgentConfig) -> None:
 
 async def test_fallback_on_unexpected_json(agent_cfg: AgentConfig) -> None:
     """When response JSON doesn't have choices, fall back to str(data)."""
-    transport = httpx.MockTransport(
-        lambda _: httpx.Response(200, json={"answer": "fallback"})
-    )
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"answer": "fallback"}))
     adapter = OpenAIChatAdapter(agent_cfg)
     adapter._client = httpx.AsyncClient(transport=transport)
 
@@ -107,9 +103,7 @@ async def test_conversation_state(agent_cfg: AgentConfig) -> None:
         body = json.loads(request.content)
         # Each subsequent call should have more messages
         msg_count = len(body["messages"])
-        return httpx.Response(
-            200, json=_openai_response(f"reply-{call_count} (msgs={msg_count})")
-        )
+        return httpx.Response(200, json=_openai_response(f"reply-{call_count} (msgs={msg_count})"))
 
     transport = httpx.MockTransport(handler)
     adapter = OpenAIChatAdapter(agent_cfg)

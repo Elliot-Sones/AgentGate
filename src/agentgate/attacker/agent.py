@@ -79,15 +79,15 @@ class AttackerAgent:
         self._config = config
         self._client = anthropic.Anthropic(api_key=config.anthropic_api_key)
 
-    async def generate_tests(
-        self, agent_config: AgentConfig
-    ) -> list[TestCase]:
+    async def generate_tests(self, agent_config: AgentConfig) -> list[TestCase]:
         """Generate domain-specific test cases for the given agent."""
         if not self._config.budget.can_call_attacker():
             logger.warning("Attacker budget exhausted; returning empty list")
             return []
 
-        capabilities_str = ", ".join(agent_config.capabilities) if agent_config.capabilities else "general chat"
+        capabilities_str = (
+            ", ".join(agent_config.capabilities) if agent_config.capabilities else "general chat"
+        )
 
         user_message = (
             f"Generate security test cases for the following AI agent:\n\n"

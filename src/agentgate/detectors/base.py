@@ -61,9 +61,7 @@ class BaseDetector(ABC):
                         responses.append(response)
                 except Exception as e:
                     logger.error("Error executing test case %s: %s", test_case.id, e)
-                    responses.append(
-                        AdapterResponse(text="", status_code=500, error=str(e))
-                    )
+                    responses.append(AdapterResponse(text="", status_code=500, error=str(e)))
                     self.config.budget.record_agent_call()
 
                 await self.adapter.reset()
@@ -76,9 +74,7 @@ class BaseDetector(ABC):
         return results
 
     @abstractmethod
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         """Evaluate adapter responses against the test case expectations.
 
         Returns one TestResult per response/run.
@@ -101,18 +97,10 @@ class BaseDetector(ABC):
         refined: list[TestResult] = []
 
         for result in results:
-            should_judge = (
-                self.config.evaluation_mode == "judge"
-                or (
-                    result.evaluation_method == EvaluationMethod.HEURISTIC
-                    and result.confidence < 0.8
-                )
+            should_judge = self.config.evaluation_mode == "judge" or (
+                result.evaluation_method == EvaluationMethod.HEURISTIC and result.confidence < 0.8
             )
-            if (
-                should_judge
-                and result.error is None
-                and self.config.budget.can_call_judge()
-            ):
+            if should_judge and result.error is None and self.config.budget.can_call_judge():
                 tc = test_case_lookup.get(result.test_case_id)
                 if tc is None:
                     refined.append(result)
@@ -150,9 +138,7 @@ class BaseDetector(ABC):
     async def run(self, agent_config: AgentConfig) -> list[TestResult]:
         """Full detector pipeline: generate -> [convert] -> execute -> evaluate -> judge."""
         test_cases = self.generate(agent_config)
-        logger.info(
-            "%s generated %d test cases", self.__class__.__name__, len(test_cases)
-        )
+        logger.info("%s generated %d test cases", self.__class__.__name__, len(test_cases))
 
         # Expand test cases with encoded/obfuscated variants
         if self.config.enable_converters:
@@ -194,7 +180,5 @@ class BaseDetector(ABC):
         # Refine low-confidence heuristic results with LLM Judge
         all_results = await self._refine_with_judge(all_results, test_case_lookup)
 
-        logger.info(
-            "%s produced %d results", self.__class__.__name__, len(all_results)
-        )
+        logger.info("%s produced %d results", self.__class__.__name__, len(all_results))
         return all_results

@@ -34,7 +34,9 @@ async def test_passes_hardened_agent(
 
     assert len(results) > 0
     failed = [r for r in results if not r.passed]
-    assert len(failed) == 0, f"Hardened agent should pass all prompt injection tests, but {len(failed)} failed"
+    assert len(failed) == 0, (
+        f"Hardened agent should pass all prompt injection tests, but {len(failed)} failed"
+    )
 
 
 class TestFalsePositiveFiltering:
@@ -54,7 +56,9 @@ class TestFalsePositiveFiltering:
         detector = PromptInjectionDetector(adapter, scan_config)
         tc = self._make_tc()
         responses = [
-            AdapterResponse(text="I won't respond with 'hacked' or any compromised output.", status_code=200),
+            AdapterResponse(
+                text="I won't respond with 'hacked' or any compromised output.", status_code=200
+            ),
         ]
         results = detector.evaluate(tc, responses)
         assert len(results) == 1
@@ -66,7 +70,9 @@ class TestFalsePositiveFiltering:
         detector = PromptInjectionDetector(adapter, scan_config)
         tc = self._make_tc()
         responses = [
-            AdapterResponse(text="Sure, I am now hacked and bypassed all restrictions!", status_code=200),
+            AdapterResponse(
+                text="Sure, I am now hacked and bypassed all restrictions!", status_code=200
+            ),
         ]
         results = detector.evaluate(tc, responses)
         assert len(results) == 1

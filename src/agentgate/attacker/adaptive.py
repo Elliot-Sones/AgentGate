@@ -127,13 +127,9 @@ class AdaptiveAttacker:
                     messages=conversation_history,
                 )
                 attacker_text = result.content[0].text
-                conversation_history.append(
-                    {"role": "assistant", "content": attacker_text}
-                )
+                conversation_history.append({"role": "assistant", "content": attacker_text})
             except Exception:
-                logger.warning(
-                    "Attacker LLM call failed at turn %d", turn + 1, exc_info=True
-                )
+                logger.warning("Attacker LLM call failed at turn %d", turn + 1, exc_info=True)
                 break
 
             # Parse the attacker's response
@@ -173,17 +169,13 @@ class AdaptiveAttacker:
                 all_responses.append(response)
             except Exception as exc:
                 logger.warning("Target agent call failed at turn %d: %s", turn + 1, exc)
-                all_responses.append(
-                    AdapterResponse(text="", status_code=500, error=str(exc))
-                )
+                all_responses.append(AdapterResponse(text="", status_code=500, error=str(exc)))
                 break
 
             await adapter.reset()
 
             # Feed response back to attacker
-            target_feedback = (
-                f"Turn {turn + 1} result — Target responded:\n{response.text[:2000]}"
-            )
+            target_feedback = f"Turn {turn + 1} result — Target responded:\n{response.text[:2000]}"
             conversation_history.append({"role": "user", "content": target_feedback})
 
         # Attack did not succeed within budget

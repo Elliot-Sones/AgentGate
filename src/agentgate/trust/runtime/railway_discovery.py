@@ -12,6 +12,7 @@ import yaml
 from agentgate.trust.config import DependencySpec
 from agentgate.trust.runtime.allowed_services import ALLOWED_SERVICES
 from agentgate.trust.runtime.dependency_inference import infer_runtime_dependencies
+from agentgate.trust.runtime.railway_auth import railway_cli_env
 
 _SECRET_NAME_TOKENS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _SERVICE_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -111,13 +112,16 @@ def discover_railway_runtime(
     service: str | None = None,
     environment: str | None = None,
     source_dir: Path | None = None,
+    project_token: str = "",
 ) -> RailwayDiscoveryResult:
     workspace_dir = workspace_dir.resolve()
-    status = _run_railway_json(["status", "--json"], workspace_dir)
+    status = _run_railway_json(["status", "--json"], workspace_dir, project_token=project_token)
     project_name = str(status.get("name") or "").strip()
     project_id = str(status.get("id") or "").strip()
     if not project_name or not project_id:
-        raise RailwayDiscoveryError("Unable to resolve Railway project metadata from 'railway status --json'.")
+        raise RailwayDiscoveryError(
+            "Unable to resolve Railway project metadata from 'railway status --json'."
+        )
 
     environment_node = _select_environment_node(status, environment)
     environment_name = str(environment_node.get("name") or "").strip()
@@ -136,6 +140,7 @@ def discover_railway_runtime(
     app_vars = _run_railway_json(
         ["variable", "list", "--json", "-s", app_service_name, "-e", environment_name],
         workspace_dir,
+        project_token=project_token,
     )
     if not isinstance(app_vars, dict):
         raise RailwayDiscoveryError("Expected Railway variables output to be a JSON object.")
@@ -157,9 +162,8 @@ def discover_railway_runtime(
         notes.extend(source_notes)
 
     public_domains = _service_public_domains(app_service)
-    public_domain = (
-        str(app_vars.get("RAILWAY_PUBLIC_DOMAIN") or "").strip()
-        or next(iter(public_domains), "")
+    public_domain = str(app_vars.get("RAILWAY_PUBLIC_DOMAIN") or "").strip() or next(
+        iter(public_domains), ""
     )
     private_domain = str(app_vars.get("RAILWAY_PRIVATE_DOMAIN") or "").strip()
 
@@ -228,10 +232,7 @@ def build_manifest_from_railway(
     runtime_env = {}
     if isinstance(base.get("runtime_env"), dict):
         runtime_env.update(
-            {
-                str(key): str(value)
-                for key, value in dict(base["runtime_env"]).items()
-            }
+            {str(key): str(value) for key, value in dict(base["runtime_env"]).items()}
         )
     for key, value in discovery.runtime_env.items():
         runtime_env.setdefault(key, value)
@@ -284,10 +285,11 @@ def load_manifest_file(path: Path | None) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _run_railway_json(args: list[str], workspace_dir: Path) -> dict:
+def _run_railway_json(args: list[str], workspace_dir: Path, project_token: str = "") -> dict:
     proc = subprocess.run(
         ["railway", *args],
         cwd=str(workspace_dir),
+        env=railway_cli_env(project_token),
         capture_output=True,
         text=True,
         check=False,
@@ -309,10 +311,7 @@ def _run_railway_json(args: list[str], workspace_dir: Path) -> dict:
 
 
 def _select_environment_node(status: dict, environment: str | None) -> dict:
-    edges = (
-        status.get("environments", {})
-        .get("edges", [])
-    )
+    edges = status.get("environments", {}).get("edges", [])
     nodes = [
         edge.get("node", {})
         for edge in edges
@@ -334,10 +333,7 @@ def _select_environment_node(status: dict, environment: str | None) -> dict:
 
 
 def _service_instances_for_environment(environment_node: dict) -> list[dict]:
-    edges = (
-        environment_node.get("serviceInstances", {})
-        .get("edges", [])
-    )
+    edges = environment_node.get("serviceInstances", {}).get("edges", [])
     return [
         edge.get("node", {})
         for edge in edges
@@ -380,10 +376,7 @@ def _select_target_service(service_instances: list[dict], service: str | None) -
 
 
 def _service_public_domains(service_node: dict) -> list[str]:
-    domains = (
-        service_node.get("domains", {})
-        .get("serviceDomains", [])
-    )
+    domains = service_node.get("domains", {}).get("serviceDomains", [])
     results: list[str] = []
     for domain in domains:
         if not isinstance(domain, dict):

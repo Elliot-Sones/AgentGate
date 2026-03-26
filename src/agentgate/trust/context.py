@@ -199,9 +199,7 @@ class TrustScanContext:
                 continue
 
             normalized_env = {str(key): str(value) for key, value in env.items()}
-            normalized_dependencies.append(
-                DependencySpec(service=service_name, env=normalized_env)
-            )
+            normalized_dependencies.append(DependencySpec(service=service_name, env=normalized_env))
 
         self.config.dependencies = normalized_dependencies
         self.infer_runtime_config_from_source()
@@ -243,9 +241,7 @@ def _tokenize_yaml_lines(text: str) -> list[tuple[int, str]]:
     return lines
 
 
-def _parse_yaml_block(
-    lines: list[tuple[int, str]], start: int, indent: int
-) -> tuple[object, int]:
+def _parse_yaml_block(lines: list[tuple[int, str]], start: int, indent: int) -> tuple[object, int]:
     if start >= len(lines):
         return {}, start
     _, text = lines[start]
@@ -254,9 +250,7 @@ def _parse_yaml_block(
     return _parse_yaml_dict(lines, start, indent)
 
 
-def _parse_yaml_dict(
-    lines: list[tuple[int, str]], start: int, indent: int
-) -> tuple[dict, int]:
+def _parse_yaml_dict(lines: list[tuple[int, str]], start: int, indent: int) -> tuple[dict, int]:
     data: dict = {}
     index = start
 
@@ -291,9 +285,7 @@ def _parse_yaml_dict(
     return data, index
 
 
-def _parse_yaml_list(
-    lines: list[tuple[int, str]], start: int, indent: int
-) -> tuple[list, int]:
+def _parse_yaml_list(lines: list[tuple[int, str]], start: int, indent: int) -> tuple[list, int]:
     items: list = []
     index = start
 

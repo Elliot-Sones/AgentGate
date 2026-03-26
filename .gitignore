@@ -35,3 +35,4 @@ demo___agent_report.*
 *.mp4
 agentgate_demo.gif
 agentgate_progress_demo.gif
+.worktrees/

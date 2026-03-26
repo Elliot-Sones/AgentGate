@@ -32,6 +32,8 @@ _PROBE_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"/healthz\b", re.IGNORECASE), "/healthz"),
     (re.compile(r"/api/v1/chat\b", re.IGNORECASE), "/api/v1/chat"),
     (re.compile(r"/chat\b", re.IGNORECASE), "/chat"),
+    (re.compile(r"/search\b", re.IGNORECASE), "/search"),
+    (re.compile(r"/query\b", re.IGNORECASE), "/query"),
 )
 
 
@@ -126,8 +128,8 @@ def build_submission_profile(
         assessment.supported = False
         assessment.status = "unsupported_integration"
         assessment.reason = "unsupported_integration"
-        assessment.detail = (
-            "Unsupported external integrations: " + ", ".join(sorted(unsupported_integrations))
+        assessment.detail = "Unsupported external integrations: " + ", ".join(
+            sorted(unsupported_integrations)
         )
     elif unsupported_integrations:
         assessment.notes.append(
@@ -135,9 +137,7 @@ def build_submission_profile(
             + ", ".join(sorted(unsupported_integrations))
         )
 
-    issued_env, issued_integrations, missing_integrations = issue_platform_credentials(
-        integrations
-    )
+    issued_env, issued_integrations, missing_integrations = issue_platform_credentials(integrations)
     profile.issued_runtime_env = issued_env
     profile.issued_integrations = issued_integrations
     profile.allow_domains = sorted(platform_allow_domains(issued_integrations, issued_env))
@@ -146,9 +146,8 @@ def build_submission_profile(
         assessment.supported = False
         assessment.status = "unsupported_integration"
         assessment.reason = "platform_credentials_unavailable"
-        assessment.detail = (
-            "Platform-issued credentials are unavailable for: "
-            + ", ".join(sorted(missing_integrations))
+        assessment.detail = "Platform-issued credentials are unavailable for: " + ", ".join(
+            sorted(missing_integrations)
         )
     elif missing_integrations:
         assessment.notes.append(
@@ -177,7 +176,22 @@ def _infer_entrypoint(docker_text: str, manifest: dict | None) -> str:
 def _infer_ports(source_dir: Path, docker_text: str) -> list[int]:
     found: list[int] = []
     for pattern in _PORT_PATTERNS:
-        for text in (docker_text, *(_safe_read_text(path) for path in source_dir.rglob("*") if path.is_file() and path.name in {"Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"})):
+        for text in (
+            docker_text,
+            *(
+                _safe_read_text(path)
+                for path in source_dir.rglob("*")
+                if path.is_file()
+                and path.name
+                in {
+                    "Dockerfile",
+                    "docker-compose.yml",
+                    "docker-compose.yaml",
+                    "compose.yml",
+                    "compose.yaml",
+                }
+            ),
+        ):
             if not text:
                 continue
             for match in pattern.findall(text):
@@ -200,7 +214,9 @@ def _infer_probe_paths(source_dir: Path, docker_text: str, manifest: dict | None
             for item in declared:
                 if isinstance(item, str) and item.startswith("/") and item not in paths:
                     paths.append(item)
-    for text in [docker_text] + [_safe_read_text(path) for path in source_dir.rglob("*") if path.is_file()]:
+    for text in [docker_text] + [
+        _safe_read_text(path) for path in source_dir.rglob("*") if path.is_file()
+    ]:
         if not text:
             continue
         for pattern, value in _PROBE_HINTS:
@@ -214,7 +230,9 @@ def _infer_http_supported(source_dir: Path, docker_text: str, manifest: dict | N
         entrypoint = str(manifest.get("entrypoint") or "").lower()
         if entrypoint.endswith(".py") or "uvicorn" in entrypoint or "gunicorn" in entrypoint:
             return True
-    texts = [docker_text] + [_safe_read_text(path) for path in source_dir.rglob("*") if path.is_file()]
+    texts = [docker_text] + [
+        _safe_read_text(path) for path in source_dir.rglob("*") if path.is_file()
+    ]
     return any(pattern.search(text) for text in texts if text for pattern in _HTTP_HINTS)
 
 

@@ -29,7 +29,7 @@ class StaticProvenanceCheck(BaseTrustCheck):
                     summary=f"Image '{image_ref}' is not pinned by digest.",
                     recommendation="Submit immutable image references using @sha256 digest.",
                     observed=image_ref,
-                    )
+                )
             )
 
         cosign = shutil.which("cosign")

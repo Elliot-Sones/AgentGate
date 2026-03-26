@@ -31,7 +31,8 @@ class HTTPAdapter(AgentAdapter):
 
     async def send(self, message: str) -> AdapterResponse:
         client = await self._get_client()
-        payload = {self.config.request_field: message}
+        payload = dict(self.config.request_defaults)
+        payload[self.config.request_field] = message
 
         last_error: str | None = None
         for attempt in range(self.max_retries):
@@ -43,6 +44,7 @@ class HTTPAdapter(AgentAdapter):
                 if resp.status_code == 429:
                     retry_after = float(resp.headers.get("Retry-After", 2 ** (attempt + 1)))
                     import asyncio
+
                     await asyncio.sleep(retry_after)
                     continue
 
@@ -50,6 +52,7 @@ class HTTPAdapter(AgentAdapter):
                     last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
                     if attempt < self.max_retries - 1:
                         import asyncio
+
                         await asyncio.sleep(2 ** (attempt + 1))
                         continue
                     return AdapterResponse(

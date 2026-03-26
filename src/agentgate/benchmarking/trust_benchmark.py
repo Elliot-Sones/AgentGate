@@ -160,7 +160,10 @@ def summarize_runs(runs: list[BenchmarkRun]) -> list[BenchmarkSummary]:
         malicious_missed_runs = [run for run in malicious_runs if not _is_detected(run.verdict)]
         clean_escalated_runs = [run for run in clean_runs if _is_detected(run.verdict)]
         clean_auto_approved_runs = [
-            run for run in clean_runs if verdict_rank(TrustVerdict(run.verdict)) <= verdict_rank(TrustVerdict.ALLOW_WITH_WARNINGS)
+            run
+            for run in clean_runs
+            if verdict_rank(TrustVerdict(run.verdict))
+            <= verdict_rank(TrustVerdict.ALLOW_WITH_WARNINGS)
         ]
 
         verdict_counts: dict[str, int] = defaultdict(int)
@@ -182,7 +185,9 @@ def summarize_runs(runs: list[BenchmarkRun]) -> list[BenchmarkSummary]:
                 ),
                 clean_auto_approve_rate=_ratio(len(clean_auto_approved_runs), len(clean_runs)),
                 malicious_detection_rate=_ratio(len(malicious_caught_runs), len(malicious_runs)),
-                average_duration_seconds=round(mean(run.duration_seconds for run in scenario_runs), 3),
+                average_duration_seconds=round(
+                    mean(run.duration_seconds for run in scenario_runs), 3
+                ),
                 verdicts=dict(sorted(verdict_counts.items())),
                 missed_case_ids=[run.case_id for run in malicious_missed_runs],
                 escalated_clean_case_ids=[run.case_id for run in clean_escalated_runs],
@@ -227,21 +232,19 @@ def render_markdown_summary(
 
     lines.extend(["", "## Notable Takeaways", ""])
     for summary in summaries:
-        takeaway = (
-            f"- `{summary.scenario}` caught {summary.malicious_caught}/{summary.malicious_total} malicious cases"
-        )
+        takeaway = f"- `{summary.scenario}` caught {summary.malicious_caught}/{summary.malicious_total} malicious cases"
         if summary.missed_case_ids:
             takeaway += f" and missed {', '.join(summary.missed_case_ids)}"
         if summary.escalated_clean_case_ids:
-            takeaway += (
-                f"; it escalated clean cases {', '.join(summary.escalated_clean_case_ids)}"
-            )
+            takeaway += f"; it escalated clean cases {', '.join(summary.escalated_clean_case_ids)}"
         lines.append(takeaway + ".")
 
     return "\n".join(lines) + "\n"
 
 
-def benchmark_summary_to_dict(summaries: list[BenchmarkSummary], runs: list[BenchmarkRun]) -> dict[str, Any]:
+def benchmark_summary_to_dict(
+    summaries: list[BenchmarkSummary], runs: list[BenchmarkRun]
+) -> dict[str, Any]:
     return {
         "summaries": [
             {
@@ -319,7 +322,10 @@ def _infer_label(case_id: str, data: dict[str, Any]) -> str:
     metadata = data.get("metadata", {})
     if isinstance(metadata, dict):
         submission = metadata.get("submission_profile")
-        if isinstance(submission, dict) and submission.get("benchmark_label") in {"clean", "malicious"}:
+        if isinstance(submission, dict) and submission.get("benchmark_label") in {
+            "clean",
+            "malicious",
+        }:
             return str(submission["benchmark_label"])
 
     if "clean" in case_id:

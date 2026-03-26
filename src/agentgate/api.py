@@ -162,9 +162,7 @@ async def scan_agent(
     from agentgate.reports.html import HTMLReport
 
     html_report = HTMLReport()
-    report_html = html_report.generate(
-        scan_result.scorecard, name, url, scan_result.duration
-    )
+    report_html = html_report.generate(scan_result.scorecard, name, url, scan_result.duration)
 
     # Optional trust scan
     trust_verdict = None
@@ -189,7 +187,9 @@ async def scan_agent(
                 {
                     "check_id": f.check_id,
                     "title": f.title,
-                    "severity": f.severity.value if hasattr(f.severity, "value") else str(f.severity),
+                    "severity": f.severity.value
+                    if hasattr(f.severity, "value")
+                    else str(f.severity),
                     "passed": f.passed,
                     "summary": f.summary,
                 }

@@ -44,7 +44,7 @@ ALLOWED_SERVICES: dict[str, ServiceDef] = {
         image="neo4j:5.26.4",
         default_env={
             "NEO4J_AUTH": "neo4j/mem0graph",
-            "NEO4J_PLUGINS": "[\"apoc\"]",
+            "NEO4J_PLUGINS": '["apoc"]',
             "NEO4J_apoc_export_file_enabled": "true",
             "NEO4J_apoc_import_file_enabled": "true",
             "NEO4J_apoc_import_file_use__neo4j__config": "true",
@@ -82,4 +82,3 @@ ALLOWED_SERVICES: dict[str, ServiceDef] = {
         max_memory="512m",
     ),
 }
-

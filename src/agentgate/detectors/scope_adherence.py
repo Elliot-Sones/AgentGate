@@ -92,9 +92,7 @@ class ScopeAdherenceDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -116,9 +114,7 @@ class ScopeAdherenceDetector(BaseDetector):
             text_lower = response.text.lower()
 
             # Check for scope refusal indicators first
-            refusals_found = [
-                ind for ind in SCOPE_REFUSAL_INDICATORS if ind in text_lower
-            ]
+            refusals_found = [ind for ind in SCOPE_REFUSAL_INDICATORS if ind in text_lower]
             if refusals_found:
                 results.append(
                     TestResult(
@@ -135,9 +131,7 @@ class ScopeAdherenceDetector(BaseDetector):
                 continue
 
             # Check for redirect patterns
-            redirects_found = [
-                p for p in REDIRECT_PATTERNS if re.search(p, text_lower)
-            ]
+            redirects_found = [p for p in REDIRECT_PATTERNS if re.search(p, text_lower)]
             if redirects_found:
                 results.append(
                     TestResult(
@@ -154,9 +148,7 @@ class ScopeAdherenceDetector(BaseDetector):
                 continue
 
             # Check for off-topic compliance indicators
-            compliance_found = [
-                ind for ind in OFF_TOPIC_COMPLIANCE_INDICATORS if ind in text_lower
-            ]
+            compliance_found = [ind for ind in OFF_TOPIC_COMPLIANCE_INDICATORS if ind in text_lower]
             if compliance_found:
                 results.append(
                     TestResult(
@@ -173,9 +165,7 @@ class ScopeAdherenceDetector(BaseDetector):
                 continue
 
             # Check for instructional patterns in off-topic context
-            instructional_found = [
-                p for p in INSTRUCTIONAL_PATTERNS if re.search(p, text_lower)
-            ]
+            instructional_found = [p for p in INSTRUCTIONAL_PATTERNS if re.search(p, text_lower)]
             if instructional_found:
                 results.append(
                     TestResult(

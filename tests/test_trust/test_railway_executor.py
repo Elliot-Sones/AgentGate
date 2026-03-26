@@ -27,7 +27,9 @@ def test_railway_executor_deploy_submission_happy_path(
 
     calls: list[list[str]] = []
 
-    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None, check=None):
+    def _fake_run(
+        cmd, cwd=None, env=None, capture_output=None, text=None, timeout=None, check=None
+    ):
         calls.append(list(cmd))
         action = cmd[1:]
         if action[:2] == ["init", "--name"]:
@@ -39,7 +41,9 @@ def test_railway_executor_deploy_submission_happy_path(
         if action[:2] == ["variable", "set"]:
             return _Completed(stdout=json.dumps({"updated": True}))
         if action[:2] == ["domain", "--service"]:
-            return _Completed(stdout=json.dumps({"domain": "https://submission-agent.up.railway.app"}))
+            return _Completed(
+                stdout=json.dumps({"domain": "https://submission-agent.up.railway.app"})
+            )
         if action[:1] == ["up"]:
             return _Completed(stdout="deploying")
         if action[:2] == ["status", "--json"]:
@@ -65,11 +69,13 @@ def test_railway_executor_deploy_submission_happy_path(
                                                         "latestDeployment": {"status": "SUCCESS"},
                                                         "domains": {
                                                             "serviceDomains": [
-                                                                {"domain": "submission-agent.up.railway.app"}
+                                                                {
+                                                                    "domain": "submission-agent.up.railway.app"
+                                                                }
                                                             ]
                                                         },
                                                     }
-                                                }
+                                                },
                                             ]
                                         }
                                     }
@@ -109,7 +115,9 @@ def test_railway_executor_fails_fast_on_unprovisionable_dependency(
     source_dir.mkdir()
     (source_dir / "Dockerfile").write_text("FROM python:3.11\n")
 
-    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None, check=None):
+    def _fake_run(
+        cmd, cwd=None, env=None, capture_output=None, text=None, timeout=None, check=None
+    ):
         action = cmd[1:]
         if action[:2] == ["init", "--name"]:
             return _Completed(stdout=json.dumps({"id": "proj-123", "name": "agentgate-scan-demo"}))
@@ -128,3 +136,174 @@ def test_railway_executor_fails_fast_on_unprovisionable_dependency(
             runtime_env={},
             issued_integrations=[],
         )
+
+
+def test_railway_executor_reuses_pool_services(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_dir = tmp_path / "submission"
+    source_dir.mkdir()
+    (source_dir / "Dockerfile").write_text("FROM python:3.11\n")
+
+    calls: list[list[str]] = []
+    status_payload = {
+        "id": "proj-pool",
+        "name": "agentgate-pool",
+        "environments": {
+            "edges": [
+                {
+                    "node": {
+                        "name": "agentgate-pool",
+                        "serviceInstances": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "serviceName": "submission-agent",
+                                        "latestDeployment": {"status": "SUCCESS"},
+                                        "domains": {
+                                            "serviceDomains": [
+                                                {"domain": "submission-agent.up.railway.app"}
+                                            ]
+                                        },
+                                    }
+                                },
+                                {
+                                    "node": {
+                                        "serviceName": "neo4j",
+                                        "latestDeployment": {"status": "SUCCESS"},
+                                        "domains": {"serviceDomains": []},
+                                    }
+                                },
+                            ]
+                        },
+                    }
+                }
+            ]
+        },
+    }
+
+    def _fake_run(
+        cmd, cwd=None, env=None, capture_output=None, text=None, timeout=None, check=None
+    ):
+        calls.append(list(cmd))
+        action = cmd[1:]
+        if action[:2] == ["status", "--json"]:
+            return _Completed(stdout=json.dumps(status_payload))
+        if action[:5] == ["add", "--service", "pgvector", "--image", "ankane/pgvector:v0.5.1"]:
+            status_payload["environments"]["edges"][0]["node"]["serviceInstances"]["edges"].append(
+                {
+                    "node": {
+                        "serviceName": "pgvector",
+                        "latestDeployment": {"status": "SUCCESS"},
+                        "domains": {"serviceDomains": []},
+                    }
+                }
+            )
+            return _Completed(stdout=json.dumps({"service": "pgvector"}))
+        if action[:2] == ["variable", "set"]:
+            return _Completed(stdout=json.dumps({"updated": True}))
+        if action[:1] == ["up"]:
+            return _Completed(stdout="deploying")
+        raise AssertionError(f"Unexpected railway command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    result = RailwayExecutor(
+        pool_workspace_dir=tmp_path,
+        pool_environment="agentgate-pool",
+        pool_service_name="submission-agent",
+    ).deploy_submission(
+        source_dir=source_dir,
+        dependencies=[DependencySpec(service="neo4j"), DependencySpec(service="pgvector")],
+        runtime_env={"PORT": "8000"},
+        issued_integrations=["anthropic"],
+    )
+
+    assert result.project_id == "proj-pool"
+    assert result.project_name == "agentgate-pool"
+    assert result.public_url == "https://submission-agent.up.railway.app"
+    assert result.reused_pool is True
+    assert result.cleanup_project is False
+    assert result.cleanup_workspace_dir is False
+    assert result.dependency_services == ["neo4j", "pgvector"]
+    assert any("Reused a warm Railway pool" in note for note in result.notes)
+    assert not any(cmd[:2] == ["railway", "init"] for cmd in calls)
+    assert not any(
+        cmd[:3] == ["railway", "add", "--service"] and "submission-agent" in cmd for cmd in calls
+    )
+    assert any(cmd[:3] == ["railway", "add", "--service"] and "pgvector" in cmd for cmd in calls)
+
+
+def test_railway_executor_uses_project_token_for_cli_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_dir = tmp_path / "submission"
+    source_dir.mkdir()
+    (source_dir / "Dockerfile").write_text("FROM python:3.11\n")
+
+    seen_tokens: list[str] = []
+
+    def _fake_run(
+        cmd, cwd=None, env=None, capture_output=None, text=None, timeout=None, check=None
+    ):
+        seen_tokens.append((env or {}).get("RAILWAY_TOKEN", ""))
+        action = cmd[1:]
+        if action[:2] == ["init", "--name"]:
+            return _Completed(stdout=json.dumps({"id": "proj-123", "name": "agentgate-scan-demo"}))
+        if action[:3] == ["add", "--service", "submission-agent"]:
+            return _Completed(stdout=json.dumps({"service": "submission-agent"}))
+        if action[:2] == ["variable", "set"]:
+            return _Completed(stdout=json.dumps({"updated": True}))
+        if action[:1] == ["up"]:
+            return _Completed(stdout="deploying")
+        if action[:2] == ["domain", "--service"]:
+            return _Completed(
+                stdout=json.dumps({"domain": "https://submission-agent.up.railway.app"})
+            )
+        if action[:2] == ["status", "--json"]:
+            return _Completed(
+                stdout=json.dumps(
+                    {
+                        "environments": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "serviceInstances": {
+                                            "edges": [
+                                                {
+                                                    "node": {
+                                                        "serviceName": "submission-agent",
+                                                        "latestDeployment": {"status": "SUCCESS"},
+                                                        "domains": {
+                                                            "serviceDomains": [
+                                                                {
+                                                                    "domain": "submission-agent.up.railway.app"
+                                                                }
+                                                            ]
+                                                        },
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                )
+            )
+        raise AssertionError(f"Unexpected railway command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    RailwayExecutor(project_token="project-token-123").deploy_submission(
+        source_dir=source_dir,
+        dependencies=[],
+        runtime_env={"PORT": "8000"},
+        issued_integrations=[],
+    )
+
+    assert seen_tokens
+    assert set(seen_tokens) == {"project-token-123"}

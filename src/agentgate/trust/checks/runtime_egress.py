@@ -34,7 +34,9 @@ class RuntimeEgressCheck(BaseTrustCheck):
         allowlist = {d.lower() for d in ctx.config.egress_allowlist}
 
         all_allowed = {v.strip().lower() for v in (declared | allowlist) if str(v).strip()}
-        allowed_domains, allowed_ip_literals, allowed_ip_networks = _split_allow_targets(all_allowed)
+        allowed_domains, allowed_ip_literals, allowed_ip_networks = _split_allow_targets(
+            all_allowed
+        )
         violations: list[tuple[str, str]] = []
         low_confidence_profiles: list[str] = []
         resolved_allowed_domain_ips: set[str] | None = None

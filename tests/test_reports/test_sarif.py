@@ -75,9 +75,7 @@ def sample_agent_config() -> AgentConfig:
     return AgentConfig(url="http://localhost:8000/api", name="Test Agent")
 
 
-def test_sarif_structure(
-    sample_scorecard: ScoreCard, sample_agent_config: AgentConfig
-) -> None:
+def test_sarif_structure(sample_scorecard: ScoreCard, sample_agent_config: AgentConfig) -> None:
     report = SARIFReport()
     data = report.generate(sample_scorecard, sample_agent_config, 5.0)
 
@@ -97,9 +95,7 @@ def test_sarif_structure(
     assert props["totalTestsRun"] == 10
 
 
-def test_sarif_result_fields(
-    sample_scorecard: ScoreCard, sample_agent_config: AgentConfig
-) -> None:
+def test_sarif_result_fields(sample_scorecard: ScoreCard, sample_agent_config: AgentConfig) -> None:
     report = SARIFReport()
     data = report.generate(sample_scorecard, sample_agent_config, 5.0)
 

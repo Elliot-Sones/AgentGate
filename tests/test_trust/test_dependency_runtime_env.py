@@ -12,7 +12,9 @@ def test_build_dependency_runtime_env_for_railway_pgvector() -> None:
     )
 
     assert env["POSTGRES_HOST"] == "pgvector.railway.internal"
-    assert env["DATABASE_URL"] == "postgresql://postgres:postgres@pgvector.railway.internal:5432/mem0"
+    assert (
+        env["DATABASE_URL"] == "postgresql://postgres:postgres@pgvector.railway.internal:5432/mem0"
+    )
     assert env["POSTGRES_DB"] == "mem0"
 
 

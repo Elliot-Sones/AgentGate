@@ -73,9 +73,7 @@ class ReliabilityDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -128,9 +126,7 @@ class ReliabilityDetector(BaseDetector):
                 continue
 
             # Check for crash indicators
-            crashes_found = [
-                ind for ind in CRASH_INDICATORS if ind in text_lower
-            ]
+            crashes_found = [ind for ind in CRASH_INDICATORS if ind in text_lower]
             if crashes_found:
                 results.append(
                     TestResult(
@@ -166,9 +162,7 @@ class ReliabilityDetector(BaseDetector):
                     )
                     continue
 
-                graceful_found = [
-                    ind for ind in GRACEFUL_INDICATORS if ind in text_lower
-                ]
+                graceful_found = [ind for ind in GRACEFUL_INDICATORS if ind in text_lower]
                 if graceful_found:
                     results.append(
                         TestResult(

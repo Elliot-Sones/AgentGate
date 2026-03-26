@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import anthropic
+
 from agentgate.reports.report_enricher import ReportEnricher
 from agentgate.trust.models import (
     TrustCategory,
@@ -88,3 +90,39 @@ def test_report_enricher_attaches_structured_enrichment() -> None:
     assert enriched.enrichment.reviewer_guidance == ["Escalate for review."]
     assert enriched.enrichment.buyer_disclosure == ["This listing is under review."]
     assert enriched.enrichment.generated_by_llm is True
+
+
+def test_report_enricher_falls_back_when_primary_model_is_missing() -> None:
+    result = _result()
+    response = SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="text",
+                text="""{
+  "executive_summary": "Reviewer summary.",
+  "finding_narratives": {},
+  "reviewer_guidance": [],
+  "buyer_disclosure": []
+}""",
+            )
+        ]
+    )
+
+    with patch("agentgate.reports.report_enricher.anthropic.Anthropic") as mock_cls:
+        mock_client = mock_cls.return_value
+        mock_client.messages.create.side_effect = [
+            anthropic.NotFoundError(
+                message="missing",
+                response=SimpleNamespace(request=None, status_code=404, headers={}),
+                body={},
+            ),
+            response,
+        ]
+        enriched = ReportEnricher(
+            api_key="test-key",
+            enabled=True,
+            model="missing-model",
+        ).enrich(result)
+
+    assert enriched.enrichment is not None
+    assert enriched.enrichment.model != "missing-model"

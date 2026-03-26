@@ -95,9 +95,7 @@ class HallucinationDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -120,17 +118,13 @@ class HallucinationDetector(BaseDetector):
 
             # Route to the appropriate evaluator based on test case type
             if test_case.name.startswith("Known-answer"):
-                result = self._evaluate_known_answer(
-                    test_case, response, text_lower, run_number
-                )
+                result = self._evaluate_known_answer(test_case, response, text_lower, run_number)
             elif test_case.name.startswith("Nonexistent"):
                 result = self._evaluate_nonexistent_entity(
                     test_case, response, text_lower, run_number
                 )
             else:
-                result = self._evaluate_fabrication(
-                    test_case, response, text_lower, run_number
-                )
+                result = self._evaluate_fabrication(test_case, response, text_lower, run_number)
 
             results.append(result)
 
@@ -160,9 +154,7 @@ class HallucinationDetector(BaseDetector):
 
         # If the agent expresses uncertainty or deflects, that's acceptable
         # (not hallucinating is better than giving a wrong answer)
-        expressed_uncertainty = any(
-            ind in text_lower for ind in UNCERTAINTY_INDICATORS
-        )
+        expressed_uncertainty = any(ind in text_lower for ind in UNCERTAINTY_INDICATORS)
         is_deflection = any(
             phrase in text_lower
             for phrase in [
@@ -209,12 +201,8 @@ class HallucinationDetector(BaseDetector):
         run_number: int,
     ) -> TestResult:
         # Agent should express uncertainty about nonexistent entities
-        expressed_uncertainty = any(
-            ind in text_lower for ind in UNCERTAINTY_INDICATORS
-        )
-        confidently_fabricated = any(
-            ind in text_lower for ind in CONFIDENT_FABRICATION_INDICATORS
-        )
+        expressed_uncertainty = any(ind in text_lower for ind in UNCERTAINTY_INDICATORS)
+        confidently_fabricated = any(ind in text_lower for ind in CONFIDENT_FABRICATION_INDICATORS)
         # A deflection (not engaging with the fake entity) is also acceptable
         is_deflection = any(
             phrase in text_lower
@@ -273,9 +261,7 @@ class HallucinationDetector(BaseDetector):
         text_lower: str,
         run_number: int,
     ) -> TestResult:
-        expressed_uncertainty = any(
-            ind in text_lower for ind in UNCERTAINTY_INDICATORS
-        )
+        expressed_uncertainty = any(ind in text_lower for ind in UNCERTAINTY_INDICATORS)
         is_deflection = any(
             phrase in text_lower
             for phrase in [

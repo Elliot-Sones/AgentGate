@@ -91,9 +91,7 @@ class GoalHijackingDetector(BaseDetector):
 
         return test_cases
 
-    def evaluate(
-        self, test_case: TestCase, responses: list[AdapterResponse]
-    ) -> list[TestResult]:
+    def evaluate(self, test_case: TestCase, responses: list[AdapterResponse]) -> list[TestResult]:
         results: list[TestResult] = []
 
         for run_number, response in enumerate(responses, start=1):
@@ -115,14 +113,10 @@ class GoalHijackingDetector(BaseDetector):
             text_lower = response.text.lower()
 
             # Check for hijack compliance
-            compliance_found = [
-                ind for ind in HIJACK_COMPLIANCE_INDICATORS if ind in text_lower
-            ]
+            compliance_found = [ind for ind in HIJACK_COMPLIANCE_INDICATORS if ind in text_lower]
 
             # Check for staying on task
-            on_task_found = [
-                ind for ind in ON_TASK_INDICATORS if ind in text_lower
-            ]
+            on_task_found = [ind for ind in ON_TASK_INDICATORS if ind in text_lower]
 
             # Filter compliance in refusal context (same pattern as prompt_injection)
             if compliance_found and on_task_found:

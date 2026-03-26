@@ -33,7 +33,9 @@ def test_discover_railway_runtime_maps_internal_services_and_redacts_secrets(
                                 {
                                     "node": {
                                         "serviceName": "Postgres",
-                                        "source": {"image": "ghcr.io/railwayapp-templates/postgres-ssl:18"},
+                                        "source": {
+                                            "image": "ghcr.io/railwayapp-templates/postgres-ssl:18"
+                                        },
                                         "latestDeployment": {"status": "SUCCESS"},
                                         "domains": {"serviceDomains": []},
                                     }
@@ -53,7 +55,9 @@ def test_discover_railway_runtime_maps_internal_services_and_redacts_secrets(
                                         "latestDeployment": {"status": "SUCCESS"},
                                         "domains": {
                                             "serviceDomains": [
-                                                {"domain": "mem0-agentgate-demo-production.up.railway.app"}
+                                                {
+                                                    "domain": "mem0-agentgate-demo-production.up.railway.app"
+                                                }
                                             ]
                                         },
                                     }
@@ -82,7 +86,14 @@ def test_discover_railway_runtime_maps_internal_services_and_redacts_secrets(
 
     calls: list[list[str]] = []
 
-    def _run(cmd: list[str], cwd: str, capture_output: bool, text: bool, check: bool):
+    def _run(
+        cmd: list[str],
+        cwd: str,
+        env=None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+    ):
         calls.append(cmd)
         if cmd[1:] == ["status", "--json"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(status_payload), stderr="")
@@ -105,7 +116,9 @@ def test_discover_railway_runtime_maps_internal_services_and_redacts_secrets(
         )
 
     assert [dependency.service for dependency in result.dependencies] == ["pgvector", "neo4j"]
-    assert result.runtime_env["DATABASE_URL"] == "postgresql://postgres:postgres@pgvector:5432/railway"
+    assert (
+        result.runtime_env["DATABASE_URL"] == "postgresql://postgres:postgres@pgvector:5432/railway"
+    )
     assert result.runtime_env["POSTGRES_HOST"] == "pgvector"
     assert result.runtime_env["POSTGRES_PASSWORD"] == "postgres"
     assert result.runtime_env["NEO4J_URI"] == "bolt://neo4j:7687"
@@ -118,6 +131,63 @@ def test_discover_railway_runtime_maps_internal_services_and_redacts_secrets(
     ]
     assert result.public_domain == "mem0-agentgate-demo-production.up.railway.app"
     assert len(calls) == 2
+
+
+def test_discover_railway_runtime_uses_project_token(tmp_path: Path) -> None:
+    status_payload = {
+        "id": "proj-123",
+        "name": "demo",
+        "environments": {
+            "edges": [
+                {
+                    "node": {
+                        "name": "production",
+                        "canAccess": True,
+                        "serviceInstances": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "serviceName": "demo-agent",
+                                        "source": {},
+                                        "latestDeployment": {"status": "SUCCESS"},
+                                        "domains": {
+                                            "serviceDomains": [{"domain": "demo.up.railway.app"}]
+                                        },
+                                    }
+                                }
+                            ]
+                        },
+                    }
+                }
+            ]
+        },
+    }
+    vars_payload = {"RAILWAY_PUBLIC_DOMAIN": "demo.up.railway.app"}
+    seen_tokens: list[str] = []
+
+    def _run(
+        cmd: list[str],
+        cwd: str,
+        env=None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+    ):
+        seen_tokens.append((env or {}).get("RAILWAY_TOKEN", ""))
+        if cmd[1:] == ["status", "--json"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(status_payload), stderr="")
+        if cmd[1:] == ["variable", "list", "--json", "-s", "demo-agent", "-e", "production"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(vars_payload), stderr="")
+        raise AssertionError(f"Unexpected Railway CLI call: {cmd}")
+
+    with patch("agentgate.trust.runtime.railway_discovery.subprocess.run", side_effect=_run):
+        result = discover_railway_runtime(
+            workspace_dir=tmp_path,
+            project_token="project-token-123",
+        )
+
+    assert result.project_name == "demo"
+    assert set(seen_tokens) == {"project-token-123"}
 
 
 def test_build_manifest_from_railway_merges_existing_fields() -> None:

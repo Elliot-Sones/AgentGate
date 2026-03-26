@@ -31,7 +31,7 @@ jobs:
         run: python -m ruff check src tests
 
       - name: Type check
-        run: python -m ruff check --select=E,W,F src
+        run: python -m ruff check --select=E,W,F --ignore=E501 src
 
       - name: Test
         run: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -p pytest_asyncio.plugin --tb=short -q

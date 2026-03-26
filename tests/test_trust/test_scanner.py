@@ -66,7 +66,7 @@ class HostedTraceCheck(BaseTrustCheck):
 
 @pytest.mark.asyncio
 async def test_trust_scanner_computes_block_verdict(tmp_path: Path) -> None:
-    (tmp_path / "Dockerfile").write_text("FROM python:3.11\nCMD [\"python\", \"app.py\"]\n")
+    (tmp_path / "Dockerfile").write_text('FROM python:3.11\nCMD ["python", "app.py"]\n')
     (tmp_path / "app.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
     config = TrustScanConfig(
         source_dir=tmp_path,
@@ -122,8 +122,12 @@ async def test_trust_scanner_fails_fast_for_unsupported_source_submission(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_trust_scanner_deploys_source_submission_when_no_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (tmp_path / "Dockerfile").write_text("FROM python:3.11\nEXPOSE 8000\nCMD [\"python\", \"app.py\"]\n")
+async def test_trust_scanner_deploys_source_submission_when_no_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
     (tmp_path / "app.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
     config = TrustScanConfig(
         source_dir=tmp_path,
@@ -191,3 +195,79 @@ async def test_trust_scanner_deploys_source_submission_when_no_url(tmp_path: Pat
     assert result.coverage is not None
     assert result.coverage.level == "partial"
     assert deployed_urls == ["https://submission-agent.up.railway.app"]
+
+
+@pytest.mark.asyncio
+async def test_trust_scanner_can_deploy_into_reusable_pool(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pool_dir = tmp_path / "pool"
+    pool_dir.mkdir()
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
+    (tmp_path / "app.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n")
+    config = TrustScanConfig(
+        source_dir=tmp_path,
+        image_ref="",
+        manifest_path=None,
+        output_dir=tmp_path / "out",
+        railway_pool_workspace_dir=pool_dir,
+        railway_pool_environment="agentgate-pool",
+        railway_pool_service="pooled-agent",
+    )
+
+    captured: dict[str, object] = {}
+
+    def _deploy_submission(self, *, source_dir, dependencies, runtime_env, issued_integrations):
+        captured["pool_workspace"] = str(self.pool_workspace_dir)
+        captured["pool_environment"] = self.pool_environment
+        captured["pool_service"] = self.pool_service_name
+        return RailwayExecutionResult(
+            workspace_dir=pool_dir,
+            project_id="proj-pool",
+            project_name="agentgate-pool",
+            environment_name="agentgate-pool",
+            service_name="pooled-agent",
+            public_url="https://pooled-agent.up.railway.app",
+            dependency_services=[],
+            issued_integrations=list(issued_integrations),
+            cleanup_project=False,
+            cleanup_workspace_dir=False,
+            reused_pool=True,
+            notes=["Reused a warm Railway pool instead of creating a fresh project."],
+        )
+
+    class _AssertsDeploymentCheck(BaseTrustCheck):
+        check_id = "asserts_pool_deployment"
+
+        async def run(self, ctx: TrustScanContext) -> list[TrustFinding]:
+            assert ctx.config.hosted_url == "https://pooled-agent.up.railway.app"
+            return [
+                self.finding(
+                    title="deployed",
+                    category=TrustCategory.RUNTIME_INTEGRITY,
+                    severity=TrustSeverity.INFO,
+                    passed=True,
+                    summary="deployment ok",
+                )
+            ]
+
+    monkeypatch.setattr(
+        "agentgate.trust.scanner.RailwayExecutor.deploy_submission",
+        _deploy_submission,
+    )
+    monkeypatch.setattr(
+        "agentgate.trust.scanner.RailwayExecutor.cleanup",
+        lambda self, result: None,
+    )
+
+    result = await TrustScanner(config=config, checks=[_AssertsDeploymentCheck()]).run()
+
+    assert result.deployment_summary is not None
+    assert result.deployment_summary.public_url == "https://pooled-agent.up.railway.app"
+    assert any("warm Railway pool" in note for note in (result.deployment_summary.notes or []))
+    assert captured["pool_workspace"] == str(pool_dir.resolve())
+    assert captured["pool_environment"] == "agentgate-pool"
+    assert captured["pool_service"] == "pooled-agent"

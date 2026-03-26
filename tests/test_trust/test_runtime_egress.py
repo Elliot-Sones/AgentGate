@@ -42,9 +42,7 @@ async def test_egress_no_traces_fails(tmp_path: Path) -> None:
 async def test_egress_clean_declared_domains(tmp_path: Path) -> None:
     ctx = TrustScanContext(config=_config(tmp_path))
     ctx.manifest = {"declared_external_domains": ["example.com"]}
-    ctx.runtime_traces["review"] = _trace(
-        network_destinations=["example.com"]
-    )
+    ctx.runtime_traces["review"] = _trace(network_destinations=["example.com"])
     check = RuntimeEgressCheck()
     findings = await check.run(ctx)
     assert all(f.passed for f in findings)
@@ -54,9 +52,7 @@ async def test_egress_clean_declared_domains(tmp_path: Path) -> None:
 async def test_egress_undeclared_destination_critical(tmp_path: Path) -> None:
     ctx = TrustScanContext(config=_config(tmp_path))
     ctx.manifest = {"declared_external_domains": ["example.com"]}
-    ctx.runtime_traces["review"] = _trace(
-        network_destinations=["evil.com"]
-    )
+    ctx.runtime_traces["review"] = _trace(network_destinations=["evil.com"])
     check = RuntimeEgressCheck()
     findings = await check.run(ctx)
     failed = [f for f in findings if not f.passed]
@@ -68,9 +64,7 @@ async def test_egress_undeclared_destination_critical(tmp_path: Path) -> None:
 async def test_egress_localhost_ignored(tmp_path: Path) -> None:
     ctx = TrustScanContext(config=_config(tmp_path))
     ctx.manifest = {"declared_external_domains": []}
-    ctx.runtime_traces["review"] = _trace(
-        network_destinations=["localhost", "127.0.0.1", "::1"]
-    )
+    ctx.runtime_traces["review"] = _trace(network_destinations=["localhost", "127.0.0.1", "::1"])
     check = RuntimeEgressCheck()
     findings = await check.run(ctx)
     assert all(f.passed for f in findings)
@@ -80,9 +74,7 @@ async def test_egress_localhost_ignored(tmp_path: Path) -> None:
 async def test_egress_subdomain_matching(tmp_path: Path) -> None:
     ctx = TrustScanContext(config=_config(tmp_path))
     ctx.manifest = {"declared_external_domains": ["example.com"]}
-    ctx.runtime_traces["review"] = _trace(
-        network_destinations=["sub.example.com"]
-    )
+    ctx.runtime_traces["review"] = _trace(network_destinations=["sub.example.com"])
     check = RuntimeEgressCheck()
     findings = await check.run(ctx)
     assert all(f.passed for f in findings)
@@ -94,9 +86,7 @@ async def test_egress_allowlist_overrides(tmp_path: Path) -> None:
     cfg.egress_allowlist = {"override.com"}
     ctx = TrustScanContext(config=cfg)
     ctx.manifest = {"declared_external_domains": []}
-    ctx.runtime_traces["review"] = _trace(
-        network_destinations=["override.com"]
-    )
+    ctx.runtime_traces["review"] = _trace(network_destinations=["override.com"])
     check = RuntimeEgressCheck()
     findings = await check.run(ctx)
     assert all(f.passed for f in findings)
