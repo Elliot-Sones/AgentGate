@@ -1579,3 +1579,32 @@ def _parse_pool_dependencies(raw_dependencies: str) -> list[DependencySpec]:
     if invalid:
         raise click.ClickException("Unsupported pool dependencies: " + ", ".join(sorted(invalid)))
     return dependency_specs
+
+
+@cli.group("api-key")
+def api_key_group():
+    """Manage API keys for the hosted scanning service."""
+    pass
+
+
+@api_key_group.command("create")
+@click.option("--name", required=True, help="Name for this API key (e.g. 'PromptShop Production')")
+@click.option("--database-url", envvar="DATABASE_URL", required=True, help="Postgres connection URL")
+def api_key_create(name: str, database_url: str):
+    """Create a new API key."""
+    from agentgate.server.auth import generate_api_key
+    from agentgate.server.db import Database
+
+    async def _create():
+        db = Database(dsn=database_url)
+        await db.connect()
+        await db.run_migrations()
+        key_id, raw_key, secret_hash = generate_api_key()
+        await db.create_api_key(key_id=key_id, key_hash=secret_hash, name=name)
+        await db.disconnect()
+        return raw_key
+
+    raw_key = asyncio.run(_create())
+    console = Console()
+    console.print(f"\n[bold green]Created API key:[/bold green] {raw_key}")
+    console.print("[yellow]Store this key securely. It cannot be retrieved again.[/yellow]\n")
