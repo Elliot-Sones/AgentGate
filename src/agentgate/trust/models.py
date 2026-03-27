@@ -178,6 +178,8 @@ class GeneratedRuntimeProfile(BaseModel):
     integrations: list[str] = []
     unsupported_integrations: list[str] = []
     issued_integrations: list[str] = []
+    integration_sandboxes: list[dict[str, Any]] = []
+    integration_routes: dict[str, list[str]] = {}
     allow_domains: list[str] = []
     notes: list[str] = []
 
@@ -193,6 +195,7 @@ class DeploymentSummary(BaseModel):
     public_url: str = ""
     dependency_services: list[str] = []
     issued_integrations: list[str] = []
+    integration_sandboxes: list[dict[str, Any]] = []
     notes: list[str] = []
 
 

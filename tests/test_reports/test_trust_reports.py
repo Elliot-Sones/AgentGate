@@ -88,6 +88,17 @@ def _sample_result() -> TrustScanResult:
                 "probing_mode": "static",
                 "probe_count": 4,
                 "railway_log_lines": 12,
+                "integration_sandbox_results": [
+                    {
+                        "integration": "shopify",
+                        "status": "passed",
+                        "route": "/shopify/webhooks",
+                        "target": "agentgate-dev.myshopify.com",
+                        "summary": "Shopify sandbox product seeding succeeded and the hosted agent acknowledged the Shopify webhook replay.",
+                        "external_checks": 2,
+                        "callback_status_code": 200,
+                    }
+                ],
             },
         },
         artifacts_manifest=[],
@@ -103,6 +114,16 @@ def _sample_result() -> TrustScanResult:
             probe_paths=["/", "/docs"],
             dependencies=["postgres"],
             issued_integrations=["openai"],
+            integration_sandboxes=[
+                {
+                    "name": "shopify",
+                    "sandbox_kind": "external_sandbox",
+                    "ready": True,
+                    "target": "agentgate-dev.myshopify.com",
+                    "capabilities": ["dev_store", "generated_test_data"],
+                    "notes": ["Shopify dev store target: agentgate-dev.myshopify.com."],
+                }
+            ],
         ),
         deployment_summary=DeploymentSummary(
             platform="railway",
@@ -110,6 +131,16 @@ def _sample_result() -> TrustScanResult:
             deployment_status="ready",
             project_name="agentgate-scan-demo",
             public_url="https://demo.up.railway.app",
+            integration_sandboxes=[
+                {
+                    "name": "shopify",
+                    "sandbox_kind": "external_sandbox",
+                    "ready": True,
+                    "target": "agentgate-dev.myshopify.com",
+                    "capabilities": ["dev_store", "generated_test_data"],
+                    "notes": ["Shopify dev store target: agentgate-dev.myshopify.com."],
+                }
+            ],
         ),
         coverage=CoverageSummary(
             level="partial",
@@ -160,7 +191,9 @@ def test_trust_json_report_includes_marketplace_summaries() -> None:
     assert data["presentation"]["report_summary"]["coverage_summary"].startswith("Partial coverage")
     assert data["testing_overview"]["mode"] == "static"
     assert data["testing_overview"]["probe_count"] == 4
+    assert data["testing_overview"]["integration_exercise_count"] == 1
     assert data["run_snapshot"]["headline"] == "This run used AgentGate's normal static hosted trust checks."
+    assert data["deployment_summary"]["integration_sandboxes"][0]["name"] == "shopify"
 
 
 def test_trust_presentation_includes_report_title_and_scope() -> None:
@@ -203,6 +236,9 @@ def test_trust_html_report_renders_promptshop_sections(tmp_path: Path) -> None:
     assert "Decision and Findings" in html
     assert "Deployment Summary" in html
     assert "Adaptive Specialist Breakdown" in html
+    assert "External Integration Sandboxes" in html
+    assert "External Integration Sandbox Workflows" in html
+    assert "agentgate-dev.myshopify.com" in html
 
     path = tmp_path / "trust.html"
     report.save(path)

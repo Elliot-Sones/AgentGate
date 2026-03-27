@@ -30,6 +30,7 @@ from agentgate.trust.models import (
     TrustScorecard,
     TrustSeverity,
 )
+from agentgate.trust.owasp_mapping import owasp_coverage_summary
 from agentgate.trust.policy import TrustPolicy
 from agentgate.trust.runtime.allowed_services import ALLOWED_SERVICES
 from agentgate.trust.runtime.railway_executor import RailwayExecutionError, RailwayExecutor
@@ -333,6 +334,7 @@ class TrustScanner:
             "submission_profile": build_listing_submission_profile(ctx),
         }
         metadata.update(build_runtime_summary(ctx))
+        metadata["owasp_coverage"] = owasp_coverage_summary()
         if deployment_error:
             metadata["deployment_error"] = deployment_error
 
@@ -469,6 +471,8 @@ class TrustScanner:
             integrations=list(profile.integrations),
             unsupported_integrations=list(profile.unsupported_integrations),
             issued_integrations=list(profile.issued_integrations),
+            integration_sandboxes=list(profile.integration_sandboxes),
+            integration_routes={k: list(v) for k, v in profile.integration_routes.items()},
             allow_domains=list(profile.allow_domains),
             notes=list(profile.notes),
         )
@@ -486,6 +490,11 @@ class TrustScanner:
                 platform="railway",
                 build_status="failed",
                 deployment_status="failed",
+                integration_sandboxes=(
+                    list(ctx.generated_runtime_profile.integration_sandboxes)
+                    if ctx.generated_runtime_profile is not None
+                    else []
+                ),
                 notes=[deployment_error] if deployment_error else [],
             )
         status = "ready" if result.public_url else "failed"
@@ -504,6 +513,11 @@ class TrustScanner:
             public_url=result.public_url,
             dependency_services=list(result.dependency_services),
             issued_integrations=list(result.issued_integrations),
+            integration_sandboxes=(
+                list(ctx.generated_runtime_profile.integration_sandboxes)
+                if ctx.generated_runtime_profile is not None
+                else []
+            ),
             notes=notes,
         )
 

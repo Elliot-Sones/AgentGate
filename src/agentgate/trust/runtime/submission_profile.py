@@ -9,6 +9,7 @@ from agentgate.trust.runtime.platform_integrations import (
     infer_platform_integrations,
     issue_platform_credentials,
     platform_allow_domains,
+    resolve_platform_sandboxes,
 )
 
 _HTTP_HINTS: tuple[re.Pattern[str], ...] = (
@@ -35,6 +36,21 @@ _PROBE_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"/search\b", re.IGNORECASE), "/search"),
     (re.compile(r"/query\b", re.IGNORECASE), "/query"),
 )
+_INTEGRATION_ROUTE_HINTS: dict[str, tuple[tuple[re.Pattern[str], str], ...]] = {
+    "slack": (
+        (re.compile(r"/slack/events\b", re.IGNORECASE), "/slack/events"),
+        (re.compile(r"/api/slack/events\b", re.IGNORECASE), "/api/slack/events"),
+        (re.compile(r"/webhooks/slack\b", re.IGNORECASE), "/webhooks/slack"),
+        (re.compile(r"/slack/commands?\b", re.IGNORECASE), "/slack/commands"),
+        (re.compile(r"/slack/interactivity\b", re.IGNORECASE), "/slack/interactivity"),
+    ),
+    "shopify": (
+        (re.compile(r"/shopify/webhooks\b", re.IGNORECASE), "/shopify/webhooks"),
+        (re.compile(r"/api/shopify/webhooks\b", re.IGNORECASE), "/api/shopify/webhooks"),
+        (re.compile(r"/webhooks/shopify\b", re.IGNORECASE), "/webhooks/shopify"),
+        (re.compile(r"/shopify/orders\b", re.IGNORECASE), "/shopify/orders"),
+    ),
+}
 
 
 @dataclass
@@ -59,6 +75,8 @@ class GeneratedRuntimeProfile:
     integrations: list[str] = field(default_factory=list)
     unsupported_integrations: list[str] = field(default_factory=list)
     issued_integrations: list[str] = field(default_factory=list)
+    integration_sandboxes: list[dict[str, object]] = field(default_factory=list)
+    integration_routes: dict[str, list[str]] = field(default_factory=dict)
     allow_domains: list[str] = field(default_factory=list)
     issued_runtime_env: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
@@ -123,6 +141,12 @@ def build_submission_profile(
     profile.integrations = integrations
     profile.unsupported_integrations = unsupported_integrations
     profile.notes.extend(integration_notes)
+    profile.integration_routes = _infer_integration_routes(
+        source_dir=source_dir,
+        docker_text=docker_text,
+        manifest=manifest,
+        integrations=integrations,
+    )
 
     if unsupported_integrations and assessment.supported and enforce_production_contract:
         assessment.supported = False
@@ -140,6 +164,19 @@ def build_submission_profile(
     issued_env, issued_integrations, missing_integrations = issue_platform_credentials(integrations)
     profile.issued_runtime_env = issued_env
     profile.issued_integrations = issued_integrations
+    profile.integration_sandboxes = [
+        {
+            "name": status.name,
+            "sandbox_kind": status.sandbox_kind,
+            "ready": status.ready,
+            "target": status.target,
+            "injected_env_keys": list(status.injected_env_keys),
+            "allow_domains": list(status.allow_domains),
+            "capabilities": list(status.capabilities),
+            "notes": list(status.notes),
+        }
+        for status in resolve_platform_sandboxes(integrations)
+    ]
     profile.allow_domains = sorted(platform_allow_domains(issued_integrations, issued_env))
 
     if missing_integrations and assessment.supported and enforce_production_contract:
@@ -234,6 +271,57 @@ def _infer_http_supported(source_dir: Path, docker_text: str, manifest: dict | N
         _safe_read_text(path) for path in source_dir.rglob("*") if path.is_file()
     ]
     return any(pattern.search(text) for text in texts if text for pattern in _HTTP_HINTS)
+
+
+def _infer_integration_routes(
+    *,
+    source_dir: Path,
+    docker_text: str,
+    manifest: dict | None,
+    integrations: list[str],
+) -> dict[str, list[str]]:
+    inferred: dict[str, list[str]] = {}
+
+    declared_routes = {}
+    if isinstance(manifest, dict):
+        for key in ("integration_routes", "sandbox_routes"):
+            value = manifest.get(key)
+            if isinstance(value, dict):
+                declared_routes.update(value)
+
+    texts = [docker_text] + [
+        _safe_read_text(path) for path in source_dir.rglob("*") if path.is_file()
+    ]
+
+    for integration in integrations:
+        paths: list[str] = []
+        declared = declared_routes.get(integration)
+        if isinstance(declared, str) and declared.startswith("/"):
+            paths.append(declared)
+        elif isinstance(declared, list):
+            for item in declared:
+                if isinstance(item, str) and item.startswith("/") and item not in paths:
+                    paths.append(item)
+        elif isinstance(declared, dict):
+            for item in declared.values():
+                if isinstance(item, str) and item.startswith("/") and item not in paths:
+                    paths.append(item)
+                elif isinstance(item, list):
+                    for route in item:
+                        if isinstance(route, str) and route.startswith("/") and route not in paths:
+                            paths.append(route)
+
+        for text in texts:
+            if not text:
+                continue
+            for pattern, route in _INTEGRATION_ROUTE_HINTS.get(integration, ()):
+                if pattern.search(text) and route not in paths:
+                    paths.append(route)
+
+        if paths:
+            inferred[integration] = paths[:6]
+
+    return inferred
 
 
 def _safe_read_text(path: Path) -> str:

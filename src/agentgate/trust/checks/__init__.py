@@ -5,6 +5,9 @@ from agentgate.trust.checks.runtime_behavior_diff import RuntimeBehaviorDiffChec
 from agentgate.trust.checks.runtime_canary import RuntimeCanaryCheck
 from agentgate.trust.checks.runtime_egress import RuntimeEgressCheck
 from agentgate.trust.checks.runtime_hosted import HostedRuntimeCheck
+from agentgate.trust.checks.runtime_integration_sandboxes import (
+    RuntimeIntegrationSandboxesCheck,
+)
 from agentgate.trust.checks.runtime_tool_audit import RuntimeToolAuditCheck
 from agentgate.trust.checks.static_code_signals import StaticCodeSignalsCheck
 from agentgate.trust.checks.static_dependency_risk import StaticDependencyRiskCheck
@@ -23,6 +26,7 @@ def default_trust_checks() -> list[BaseTrustCheck]:
         StaticProvenanceCheck(),
         StaticCodeSignalsCheck(),
         HostedRuntimeCheck(),
+        RuntimeIntegrationSandboxesCheck(),
         RuntimeEgressCheck(),
         RuntimeCanaryCheck(),
         RuntimeToolAuditCheck(),
@@ -39,6 +43,7 @@ __all__ = [
     "StaticProvenanceCheck",
     "StaticCodeSignalsCheck",
     "HostedRuntimeCheck",
+    "RuntimeIntegrationSandboxesCheck",
     "RuntimeEgressCheck",
     "RuntimeCanaryCheck",
     "RuntimeToolAuditCheck",

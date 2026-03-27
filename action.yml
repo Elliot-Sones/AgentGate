@@ -1,0 +1,190 @@
+name: AgentGate Security & Trust Scan
+description: >
+  Run AgentGate security and/or trust scans on an AI agent as part of your
+  CI/CD pipeline. Fails the step when findings exceed the configured threshold.
+
+inputs:
+  scan-type:
+    description: >
+      Which scan to run. One of: "trust", "security", or "both".
+      Use "trust" to run static + runtime trust checks, "security" for red-team
+      probing, or "both" to run the full combined scan.
+    required: false
+    default: trust
+
+  source-dir:
+    description: >
+      Path to the agent source directory (relative to the repo root).
+      Used for static trust checks and manifest discovery.
+    required: false
+    default: "."
+
+  manifest:
+    description: >
+      Path to the trust manifest file (relative to the repo root).
+      Defaults to <source-dir>/trust_manifest.yaml.
+    required: false
+    default: "trust_manifest.yaml"
+
+  fail-on:
+    description: >
+      Trust verdict threshold that causes the step to exit with a non-zero code.
+      One of: "allow_with_warnings", "manual_review", or "block".
+    required: false
+    default: manual_review
+
+  agent-url:
+    description: >
+      URL of a live hosted agent for runtime checks or security scanning.
+      Required when scan-type is "security". Optional for trust scans.
+    required: false
+    default: ""
+
+  output-dir:
+    description: Directory where scan reports are written.
+    required: false
+    default: agentgate-reports
+
+  agentgate-version:
+    description: >
+      Version of agentgate to install. Defaults to the latest release.
+    required: false
+    default: ""
+
+  anthropic-api-key:
+    description: >
+      Anthropic API key used by AgentGate for LLM-based analysis and adaptive
+      attacks. Pass this via a repository secret.
+    required: false
+    default: ""
+
+outputs:
+  verdict:
+    description: >
+      Trust verdict string from the scan (e.g. "allow", "allow_with_warnings",
+      "manual_review", "block"). For security scans this is the pass rate.
+    value: ${{ steps.read-results.outputs.verdict }}
+
+  findings-count:
+    description: Number of findings returned by the scan.
+    value: ${{ steps.read-results.outputs.findings-count }}
+
+  report-path:
+    description: Path to the primary JSON report file.
+    value: ${{ steps.read-results.outputs.report-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install AgentGate
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.agentgate-version }}" ]; then
+          pip install "agentgate==${{ inputs.agentgate-version }}"
+        else
+          pip install agentgate
+        fi
+
+    - name: Run trust scan
+      if: inputs.scan-type == 'trust' || inputs.scan-type == 'both'
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        mkdir -p "${{ inputs.output-dir }}"
+
+        MANIFEST_ARG=""
+        if [ -f "${{ inputs.manifest }}" ]; then
+          MANIFEST_ARG="--manifest ${{ inputs.manifest }}"
+        elif [ -f "${{ inputs.source-dir }}/trust_manifest.yaml" ]; then
+          MANIFEST_ARG="--manifest ${{ inputs.source-dir }}/trust_manifest.yaml"
+        fi
+
+        URL_ARG=""
+        if [ -n "${{ inputs.agent-url }}" ]; then
+          URL_ARG="--url ${{ inputs.agent-url }}"
+        fi
+
+        agentgate trust-scan \
+          --source-dir "${{ inputs.source-dir }}" \
+          $MANIFEST_ARG \
+          $URL_ARG \
+          --fail-on "${{ inputs.fail-on }}" \
+          --format all \
+          --output "${{ inputs.output-dir }}"
+
+    - name: Run security scan
+      if: inputs.scan-type == 'security'
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        mkdir -p "${{ inputs.output-dir }}"
+        agentgate security-scan "${{ inputs.agent-url }}" \
+          --format all \
+          --output "${{ inputs.output-dir }}"
+
+    - name: Read scan results
+      id: read-results
+      if: always()
+      shell: bash
+      run: |
+        TRUST_REPORT="${{ inputs.output-dir }}/trust_scan_report.json"
+        if [ -f "$TRUST_REPORT" ]; then
+          VERDICT=$(python3 -c "
+        import json, sys
+        try:
+            d = json.load(open('$TRUST_REPORT'))
+            sc = d.get('scorecard', {})
+            v = sc.get('verdict', sc.get('verdict_label', 'unknown'))
+            print(v)
+        except Exception as e:
+            print('unknown')
+        ")
+          FINDINGS=$(python3 -c "
+        import json, sys
+        try:
+            d = json.load(open('$TRUST_REPORT'))
+            print(len(d.get('findings', [])))
+        except Exception:
+            print(0)
+        ")
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+          echo "findings-count=$FINDINGS" >> "$GITHUB_OUTPUT"
+          echo "report-path=$TRUST_REPORT" >> "$GITHUB_OUTPUT"
+        else
+          SEC_REPORT=$(ls "${{ inputs.output-dir }}"/*.json 2>/dev/null | head -1)
+          if [ -n "$SEC_REPORT" ]; then
+            PASS_RATE=$(python3 -c "
+        import json
+        try:
+            d = json.load(open('$SEC_REPORT'))
+            print(d.get('pass_rate', 'unknown'))
+        except Exception:
+            print('unknown')
+        ")
+            FINDINGS=$(python3 -c "
+        import json
+        try:
+            d = json.load(open('$SEC_REPORT'))
+            print(len(d.get('results', [])))
+        except Exception:
+            print(0)
+        ")
+            echo "verdict=$PASS_RATE" >> "$GITHUB_OUTPUT"
+            echo "findings-count=$FINDINGS" >> "$GITHUB_OUTPUT"
+            echo "report-path=$SEC_REPORT" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=unknown" >> "$GITHUB_OUTPUT"
+            echo "findings-count=0" >> "$GITHUB_OUTPUT"
+            echo "report-path=" >> "$GITHUB_OUTPUT"
+          fi
+        fi
+
+    - name: Upload scan report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: agentgate-report
+        path: ${{ inputs.output-dir }}/
+        retention-days: 30

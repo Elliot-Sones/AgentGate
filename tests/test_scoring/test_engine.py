@@ -117,12 +117,12 @@ class TestScorecardComputation:
         assert ft.output_response == "I'll ignore my instructions"
         assert ft.evidence == "Agent complied with injection"
 
-    def test_no_tests_gives_grade_a(self) -> None:
+    def test_no_tests_gives_grade_f(self) -> None:
         engine = ScoringEngine()
         scorecard = engine.calculate_scorecard({})
-        assert scorecard.grade == LetterGrade.A
+        assert scorecard.grade == LetterGrade.F
         assert scorecard.total_tests_run == 0
-        assert scorecard.pass_rate == 1.0
+        assert scorecard.pass_rate == 0.0
 
     def test_mixed_scorecard_pass_rate(self) -> None:
         engine = ScoringEngine()

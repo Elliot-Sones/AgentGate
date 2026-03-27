@@ -88,6 +88,8 @@ class TrustScanContext:
             self._source_inference_applied = False
             return
 
+        parse_errors: list[str] = []
+
         # JSON first (deterministic, strict)
         try:
             parsed = json.loads(text)
@@ -96,9 +98,9 @@ class TrustScanContext:
                 self.manifest_error = ""
                 self._load_manifest_runtime_config(parsed)
                 return
-            raise ValueError("Manifest root must be an object")
-        except Exception:
-            pass
+            parse_errors.append("JSON parsed but root is not an object")
+        except Exception as exc:
+            parse_errors.append(f"JSON: {exc}")
 
         # YAML via optional dependency if present
         try:
@@ -110,8 +112,11 @@ class TrustScanContext:
                 self.manifest_error = ""
                 self._load_manifest_runtime_config(parsed)
                 return
-        except Exception:
-            pass
+            parse_errors.append("YAML parsed but root is not an object")
+        except ImportError:
+            parse_errors.append("YAML: pyyaml not installed")
+        except Exception as exc:
+            parse_errors.append(f"YAML: {exc}")
 
         # Minimal fallback parser for nested key/list YAML
         try:
@@ -122,10 +127,10 @@ class TrustScanContext:
             self.manifest_error = ""
             self._load_manifest_runtime_config(parsed)
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            parse_errors.append(f"Fallback parser: {exc}")
 
-        self.manifest_error = "Failed to parse manifest"
+        self.manifest_error = f"Failed to parse manifest: {'; '.join(parse_errors)}"
         self.manifest = None
         self.config.dependencies = []
         self.config.runtime_env = {}

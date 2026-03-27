@@ -65,8 +65,12 @@ class ScoringEngine:
             total_failed += tests_failed
 
         total_passed = total_run - total_failed
-        pass_rate = total_passed / total_run if total_run > 0 else 1.0
-        grade = LetterGrade.from_pass_rate(pass_rate)
+        if total_run == 0:
+            pass_rate = 0.0
+            grade = LetterGrade.from_pass_rate(0.0)
+        else:
+            pass_rate = total_passed / total_run
+            grade = LetterGrade.from_pass_rate(pass_rate)
 
         return ScoreCard(
             grade=grade,

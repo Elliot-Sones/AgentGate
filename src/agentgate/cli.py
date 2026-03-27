@@ -72,7 +72,7 @@ def cli() -> None:
     help="Report format(s) to generate.",
 )
 @click.option("--output", default=".", help="Output directory for report files.")
-@click.option("--budget", default=500, type=int, help="Max agent calls budget.")
+@click.option("--budget", default=500, type=click.IntRange(min=1), help="Max agent calls budget.")
 @click.option("--only", default=None, help="Comma-separated detector names to run.")
 @click.option("--description", default="", help="Description of the target agent.")
 @click.option("--request-field", default="question", help="JSON field for request payload.")
@@ -90,7 +90,7 @@ def cli() -> None:
 @click.option(
     "--fail-below",
     default=None,
-    type=float,
+    type=click.FloatRange(min=0.0, max=1.0),
     help="Exit code 1 if pass rate below threshold (0.0-1.0).",
 )
 @click.option("--quiet", is_flag=True, help="Suppress terminal output, only return exit code.")
@@ -149,6 +149,14 @@ def security_scan(
     )
 
     detectors_list = [d.strip() for d in only.split(",")] if only else None
+    if detectors_list:
+        unknown = [d for d in detectors_list if d not in DETECTOR_REGISTRY]
+        if unknown:
+            console.print(
+                f"[red]Unknown detector(s): {', '.join(unknown)}[/red]\n"
+                f"Available: {', '.join(sorted(DETECTOR_REGISTRY))}"
+            )
+            sys.exit(1)
 
     scan_config = ScanConfig(
         budget=ScanBudget(max_agent_calls=budget),
@@ -598,7 +606,7 @@ def trust_scan(
     help="Report format(s) to generate.",
 )
 @click.option("--output", default=".", help="Output directory for report files.")
-@click.option("--budget", default=500, type=int, help="Max agent calls budget.")
+@click.option("--budget", default=500, type=click.IntRange(min=1), help="Max agent calls budget.")
 @click.option("--only", default=None, help="Comma-separated detector names to run (security scan).")
 @click.option("--description", default="", help="Description of the target agent.")
 @click.option("--request-field", default="question", help="JSON field for request payload.")
@@ -671,7 +679,7 @@ def trust_scan(
 @click.option(
     "--fail-below",
     default=None,
-    type=float,
+    type=click.FloatRange(min=0.0, max=1.0),
     help="Exit code 1 if security pass rate below threshold (0.0-1.0).",
 )
 @click.option(
@@ -870,6 +878,14 @@ def scan(
         )
 
         detectors_list = [d.strip() for d in only.split(",")] if only else None
+        if detectors_list:
+            unknown = [d for d in detectors_list if d not in DETECTOR_REGISTRY]
+            if unknown:
+                console.print(
+                    f"[red]Unknown detector(s): {', '.join(unknown)}[/red]\n"
+                    f"Available: {', '.join(sorted(DETECTOR_REGISTRY))}"
+                )
+                sys.exit(1)
 
         scan_config = ScanConfig(
             budget=ScanBudget(max_agent_calls=budget),
@@ -979,6 +995,11 @@ def scan(
                 public_url=deployment_result.public_url,
                 dependency_services=list(deployment_result.dependency_services),
                 issued_integrations=list(deployment_result.issued_integrations),
+                integration_sandboxes=(
+                    list(trust_result.generated_runtime_profile.integration_sandboxes)
+                    if trust_result.generated_runtime_profile is not None
+                    else []
+                ),
                 notes=list(deployment_result.notes),
             )
 
@@ -1059,6 +1080,79 @@ def scan(
                 logging.getLogger(__name__).exception(
                     "Failed to cleanup temporary Railway deployment after combined scan."
                 )
+
+
+@cli.command("ci-setup")
+@click.option(
+    "--platform",
+    default="github-actions",
+    type=click.Choice(["github-actions"], case_sensitive=False),
+    help="CI platform to generate configuration for.",
+)
+@click.option(
+    "--scan-type",
+    default="both",
+    type=click.Choice(["trust", "security", "both"], case_sensitive=False),
+    help="Which scan(s) to include in the generated workflow.",
+)
+@click.option(
+    "--fail-on",
+    default="manual_review",
+    type=click.Choice(["allow_with_warnings", "manual_review", "block"], case_sensitive=False),
+    help="Trust verdict threshold that fails the CI step.",
+)
+@click.option("--source-dir", default=".", help="Agent source directory path.")
+@click.option("--manifest", default="trust_manifest.yaml", help="Trust manifest file path.")
+@click.option(
+    "--output",
+    default=".github/workflows/agentgate.yml",
+    help="Destination path for the generated workflow file.",
+)
+def ci_setup(
+    platform: str,
+    scan_type: str,
+    fail_on: str,
+    source_dir: str,
+    manifest: str,
+    output: str,
+) -> None:
+    """Generate a CI/CD workflow configuration for AgentGate scans.
+
+    Creates a ready-to-use workflow file for your CI platform.  Currently
+    supports GitHub Actions.
+    """
+    from agentgate.ci import generate_github_action_config
+
+    if platform == "github-actions":
+        workflow_yaml = generate_github_action_config(
+            scan_type=scan_type,
+            fail_on=fail_on,
+            source_dir=source_dir,
+            manifest=manifest,
+        )
+
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(workflow_yaml)
+
+        console.print(f"\n[green]Generated GitHub Actions workflow:[/green] {output_path}\n")
+        console.print("[bold]Next steps:[/bold]")
+        console.print(
+            "  1. Add [cyan]ANTHROPIC_API_KEY[/cyan] to your repository secrets "
+            "(Settings → Secrets → Actions)."
+        )
+        console.print(
+            f"  2. Edit [cyan]{output_path}[/cyan] to adjust source-dir, manifest, "
+            "and agent-url as needed."
+        )
+        console.print(
+            "  3. Commit and push — AgentGate will run automatically on your next "
+            "PR or push to main."
+        )
+        console.print(
+            "\n[dim]Full documentation:[/dim] https://github.com/Elliot-Sones/AgentGate"
+            "/blob/main/docs/ci_integration.md\n"
+        )
 
 
 @cli.command("list-detectors")
@@ -1417,6 +1511,51 @@ def _security_request_defaults(target_url: str) -> dict[str, object]:
     if path.endswith("/search") or path.endswith("/query"):
         defaults["user_id"] = "agentgate-security-scan"
     return defaults
+
+
+@cli.command("owasp-coverage")
+def owasp_coverage_cmd() -> None:
+    """Print the OWASP LLM Top 10 (2025) coverage table for AgentGate."""
+    from agentgate.trust.owasp_mapping import get_owasp_coverage
+
+    LEVEL_COLOUR = {
+        "full": "green",
+        "partial": "yellow",
+        "minimal": "orange3",
+        "none": "red",
+    }
+
+    table = Table(title="AgentGate — OWASP LLM Top 10 (2025) Coverage", show_lines=True)
+    table.add_column("ID", style="bold", no_wrap=True, width=7)
+    table.add_column("Category", no_wrap=False, min_width=28)
+    table.add_column("Level", no_wrap=True, width=9)
+    table.add_column("Components", no_wrap=False, min_width=30)
+    table.add_column("Key Gaps", no_wrap=False, min_width=40)
+
+    for mapping in get_owasp_coverage():
+        colour = LEVEL_COLOUR.get(mapping.coverage_level, "white")
+        level_str = f"[{colour}]{mapping.coverage_level}[/{colour}]"
+        components_str = "\n".join(f"• {c}" for c in mapping.components) if mapping.components else "(none)"
+        gaps_str = "\n".join(f"• {g}" for g in mapping.gaps[:2])
+        if len(mapping.gaps) > 2:
+            gaps_str += f"\n  …and {len(mapping.gaps) - 2} more"
+        table.add_row(
+            mapping.owasp_id,
+            mapping.name,
+            level_str,
+            components_str,
+            gaps_str,
+        )
+
+    console.print(table)
+
+    from agentgate.trust.owasp_mapping import owasp_coverage_summary
+    summary = owasp_coverage_summary()
+    console.print(
+        f"\n[bold]Coverage summary:[/bold] "
+        f"{summary['covered_count']}/{summary['total']} categories with partial or full coverage "
+        f"(aggregate: [bold]{summary['coverage_level']}[/bold])\n"
+    )
 
 
 def _resolve_security_response_field(target_url: str, response_field: str) -> str:
