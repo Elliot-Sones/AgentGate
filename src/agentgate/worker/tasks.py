@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 from agentgate.server.db import Database
 from agentgate.server.webhook import deliver_webhook
