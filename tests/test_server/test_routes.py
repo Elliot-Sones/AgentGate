@@ -15,12 +15,16 @@ def mock_db():
         "name": "Test Key",
     })
     db.list_scan_events = AsyncMock(return_value=[])
+    db.pool = AsyncMock()
+    db.pool.fetchval = AsyncMock(return_value=1)
     return db
 
 
 @pytest.fixture
 def mock_redis():
-    return AsyncMock()
+    redis = AsyncMock()
+    redis.ping = AsyncMock(return_value=True)
+    return redis
 
 
 @pytest.fixture
@@ -287,3 +291,42 @@ async def test_error_envelope_not_found(app, mock_db):
     data = resp.json()
     assert data["error"] == "not_found"
     assert "detail" in data
+
+
+@pytest.mark.asyncio
+async def test_health_returns_503_when_db_unavailable(mock_redis):
+    """Health returns 503 when the DB pool query fails."""
+    db = AsyncMock()
+    db.pool = AsyncMock()
+    db.pool.fetchval = AsyncMock(side_effect=Exception("connection refused"))
+    application = create_app()
+    application.state.db = db
+    application.state.redis = mock_redis
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/v1/health")
+    assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_health_returns_503_when_redis_unavailable(mock_db):
+    """Health returns 503 when Redis ping fails."""
+    redis = AsyncMock()
+    redis.ping = AsyncMock(side_effect=Exception("connection refused"))
+    application = create_app()
+    application.state.db = mock_db
+    application.state.redis = redis
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/v1/health")
+    assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_health_returns_200_when_both_healthy(app):
+    """Health returns 200 when both DB and Redis respond normally."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/v1/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
