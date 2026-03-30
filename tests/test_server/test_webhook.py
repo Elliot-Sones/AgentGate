@@ -1,10 +1,11 @@
 import hashlib
 import hmac
 import time
+from unittest.mock import patch
 
 import pytest
 
-from agentgate.server.webhook import compute_signature, build_webhook_headers
+from agentgate.server.webhook import _resolve_and_check_ip, compute_signature, build_webhook_headers
 
 
 def test_compute_signature():
@@ -27,3 +28,34 @@ def test_build_webhook_headers():
     assert headers["X-AgentGate-Signature"].startswith("sha256=")
     ts = int(headers["X-AgentGate-Timestamp"])
     assert abs(ts - int(time.time())) < 5
+
+
+def test_resolve_and_check_ip_rejects_loopback():
+    with patch("agentgate.server.webhook.socket.getaddrinfo", return_value=[
+        (2, 1, 6, "", ("127.0.0.1", 443)),
+    ]):
+        with pytest.raises(ValueError, match="private"):
+            _resolve_and_check_ip("https://evil.example.com/hook")
+
+
+def test_resolve_and_check_ip_rejects_private_range():
+    with patch("agentgate.server.webhook.socket.getaddrinfo", return_value=[
+        (2, 1, 6, "", ("10.0.0.5", 443)),
+    ]):
+        with pytest.raises(ValueError, match="private"):
+            _resolve_and_check_ip("https://rebind.example.com/hook")
+
+
+def test_resolve_and_check_ip_allows_public():
+    with patch("agentgate.server.webhook.socket.getaddrinfo", return_value=[
+        (2, 1, 6, "", ("93.184.216.34", 443)),
+    ]):
+        _resolve_and_check_ip("https://example.com/hook")
+
+
+def test_resolve_and_check_ip_rejects_link_local():
+    with patch("agentgate.server.webhook.socket.getaddrinfo", return_value=[
+        (2, 1, 6, "", ("169.254.1.1", 443)),
+    ]):
+        with pytest.raises(ValueError, match="private"):
+            _resolve_and_check_ip("https://rebind.example.com/hook")
