@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
@@ -370,7 +372,45 @@ async def test_rate_limit_returns_429_after_threshold(mock_db, mock_redis):
                 )
                 status_codes.append(resp.status_code)
     assert 429 in status_codes
-    # Verify the 429 response uses our error envelope
-    last_429_idx = max(i for i, c in enumerate(status_codes) if c == 429)
-    # Re-check: at least one got rate limited
     assert status_codes.count(429) >= 1
+
+
+@pytest.mark.asyncio
+async def test_cors_headers_absent_when_no_env_var(mock_db, mock_redis):
+    """CORS headers are absent when AGENTGATE_CORS_ORIGINS is not set."""
+    try:
+        os.environ.pop("AGENTGATE_CORS_ORIGINS", None)
+        application = create_app()
+        application.state.db = mock_db
+        application.state.redis = mock_redis
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.options(
+                "/v1/health",
+                headers={"Origin": "https://evil.example.com"},
+            )
+        assert "access-control-allow-origin" not in resp.headers
+    finally:
+        os.environ.pop("AGENTGATE_CORS_ORIGINS", None)
+
+
+@pytest.mark.asyncio
+async def test_cors_headers_present_when_env_var_set(mock_db, mock_redis):
+    """CORS headers are present when AGENTGATE_CORS_ORIGINS is configured."""
+    try:
+        os.environ["AGENTGATE_CORS_ORIGINS"] = "https://dashboard.example.com"
+        application = create_app()
+        application.state.db = mock_db
+        application.state.redis = mock_redis
+        transport = ASGITransport(app=application)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.options(
+                "/v1/health",
+                headers={
+                    "Origin": "https://dashboard.example.com",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+        assert resp.headers.get("access-control-allow-origin") == "https://dashboard.example.com"
+    finally:
+        os.environ.pop("AGENTGATE_CORS_ORIGINS", None)

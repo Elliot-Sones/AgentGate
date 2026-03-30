@@ -69,6 +69,18 @@ def create_app() -> FastAPI:
     app.state.limiter = scans_limiter
     app.add_middleware(SlowAPIMiddleware)
 
+    from fastapi.middleware.cors import CORSMiddleware
+
+    cors_origins_raw = os.environ.get("AGENTGATE_CORS_ORIGINS", "")
+    if cors_origins_raw.strip():
+        origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
     @app.exception_handler(RateLimitExceeded)
     async def rate_limit_handler(request, exc):
         return JSONResponse(
