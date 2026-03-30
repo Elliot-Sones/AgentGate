@@ -238,3 +238,52 @@ async def test_get_scan_includes_coverage_fields(app, mock_db):
     assert data["coverage_status"] == "limited"
     assert data["coverage_recommendation"] == "manual_review"
     assert "No hosted runtime trace was captured." in data["coverage_detail"]
+
+
+@pytest.mark.asyncio
+async def test_error_envelope_validation_error(app):
+    """POST with invalid body returns 422 with error='validation_error'."""
+    transport = ASGITransport(app=app)
+    with patch("agentgate.server.routes.scans.verify_secret", return_value=True):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/v1/scans",
+                json={},  # missing required repo_url
+                headers={"X-API-Key": "agk_live_testkey1.secret"},
+            )
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["error"] == "validation_error"
+    assert "detail" in data
+
+
+@pytest.mark.asyncio
+async def test_error_envelope_unauthorized(app):
+    """Request without auth returns 401 with error='unauthorized'."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/scans",
+            json={"repo_url": "https://github.com/test/agent"},
+        )
+    assert resp.status_code == 401
+    data = resp.json()
+    assert data["error"] == "unauthorized"
+    assert "detail" in data
+
+
+@pytest.mark.asyncio
+async def test_error_envelope_not_found(app, mock_db):
+    """GET a nonexistent scan returns 404 with error='not_found'."""
+    mock_db.get_scan = AsyncMock(return_value=None)
+    transport = ASGITransport(app=app)
+    with patch("agentgate.server.routes.scans.verify_secret", return_value=True):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/v1/scans/scan_nonexistent",
+                headers={"X-API-Key": "agk_live_testkey1.secret"},
+            )
+    assert resp.status_code == 404
+    data = resp.json()
+    assert data["error"] == "not_found"
+    assert "detail" in data

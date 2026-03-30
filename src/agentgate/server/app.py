@@ -5,6 +5,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentgate.server.routes.health import router as health_router
 from agentgate.server.routes.scans import router as scans_router
@@ -58,5 +61,42 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(scans_router)
+
+    _HTTP_ERROR_CODES = {
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        429: "rate_limited",
+        503: "service_unavailable",
+    }
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request, exc):
+        details = []
+        for error in exc.errors():
+            field = ".".join(
+                str(loc) for loc in error.get("loc", []) if loc != "body"
+            )
+            details.append(f"{field}: {error['msg']}" if field else error["msg"])
+        return JSONResponse(
+            status_code=422,
+            content={"error": "validation_error", "detail": "; ".join(details)},
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error_handler(request, exc):
+        code = _HTTP_ERROR_CODES.get(exc.status_code, "api_error")
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": code, "detail": str(exc.detail)},
+        )
+
+    @app.exception_handler(Exception)
+    async def catch_all_handler(request, exc):
+        return JSONResponse(
+            status_code=500,
+            content={"error": "internal_error", "detail": "An unexpected error occurred."},
+        )
 
     return app
