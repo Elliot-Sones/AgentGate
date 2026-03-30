@@ -62,6 +62,20 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(scans_router)
 
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+    from agentgate.server.routes.scans import limiter as scans_limiter
+
+    app.state.limiter = scans_limiter
+    app.add_middleware(SlowAPIMiddleware)
+
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(request, exc):
+        return JSONResponse(
+            status_code=429,
+            content={"error": "rate_limited", "detail": f"Rate limit exceeded: {exc.detail}"},
+        )
+
     _HTTP_ERROR_CODES = {
         401: "unauthorized",
         403: "forbidden",

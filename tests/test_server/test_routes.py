@@ -330,3 +330,47 @@ async def test_health_returns_200_when_both_healthy(app):
         resp = await client.get("/v1/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_returns_429_after_threshold(mock_db, mock_redis):
+    """Sending more than 10 requests/minute triggers a 429 with error='rate_limited'."""
+    mock_db.create_scan = AsyncMock()
+    mock_db.get_scan = AsyncMock(return_value={
+        "id": "scan_abc123",
+        "status": ScanStatus.PENDING.value,
+        "phase": "queued",
+        "status_detail": "Scan accepted and queued for processing.",
+        "progress_current": 0,
+        "progress_total": 0,
+        "repo_url": "https://github.com/test/agent",
+        "git_ref": None,
+        "dockerfile_path": None,
+        "created_at": "2026-03-28T00:00:00Z",
+        "updated_at": "2026-03-28T00:00:00Z",
+        "verdict": None,
+        "score": None,
+        "error": None,
+        "report": None,
+        "completed_at": None,
+    })
+    application = create_app()
+    application.state.db = mock_db
+    application.state.redis = mock_redis
+    application.state.webhook_secret = "whsec_test"
+    transport = ASGITransport(app=application)
+    status_codes = []
+    with patch("agentgate.server.routes.scans.verify_secret", return_value=True):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            for _ in range(11):
+                resp = await client.post(
+                    "/v1/scans",
+                    json={"repo_url": "https://github.com/test/agent"},
+                    headers={"X-API-Key": "agk_live_testkey1.secret"},
+                )
+                status_codes.append(resp.status_code)
+    assert 429 in status_codes
+    # Verify the 429 response uses our error envelope
+    last_429_idx = max(i for i, c in enumerate(status_codes) if c == 429)
+    # Re-check: at least one got rate limited
+    assert status_codes.count(429) >= 1

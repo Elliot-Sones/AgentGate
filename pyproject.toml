@@ -26,6 +26,7 @@ server = [
     "asyncpg>=0.30.0",
     "bcrypt>=4.0.0",
     "redis[hiredis]>=5.0.0",
+    "slowapi>=0.1.9",
 ]
 test-agent = [
     "fastapi>=0.115.0",
@@ -46,7 +47,7 @@ agentgate = "agentgate.cli:cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-agentgate = ["datasets/*.yaml", "trust/runtime/seccomp_default.json"]
+agentgate = ["datasets/*.yaml", "trust/runtime/seccomp_default.json", "migrations/*.sql"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
