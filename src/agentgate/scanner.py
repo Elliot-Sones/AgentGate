@@ -41,6 +41,21 @@ ATTACK_VECTOR_TO_DETECTOR: dict[str, str] = {
 class ProbeError(Exception):
     """Raised when the initial probe of the target agent fails."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        target_url: str = "",
+        response_excerpt: str = "",
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.target_url = target_url
+        self.response_excerpt = response_excerpt
+        self.headers = headers or {}
+
 
 @dataclass
 class ScanResult:
@@ -220,7 +235,7 @@ class Scanner:
             )
 
         try:
-            detector_results = await detector.run(self.agent_config)
+            detector_results = await detector.run(self.agent_config, detector_name=name)
 
             # Run attacker-generated tests for this detector
             extra_tests = attacker_tests.get(name, [])
