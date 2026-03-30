@@ -1,50 +1,62 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from agentgate.server.routes.health import router as health_router
 from agentgate.server.routes.scans import router as scans_router
+from agentgate.server.urls import resolve_public_base_url
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(
-        title="AgentGate Trust Scanning API",
-        version="2.0.0",
-        description="Hosted trust verification for AI agent marketplaces",
-    )
-
-    app.include_router(health_router)
-    app.include_router(scans_router)
-
     database_url = os.environ.get("DATABASE_URL", "")
     redis_url = os.environ.get("REDIS_URL", "")
     webhook_secret = os.environ.get("AGENTGATE_WEBHOOK_SECRET", "")
+    public_base_url = resolve_public_base_url(os.environ)
 
-    @app.on_event("startup")
-    async def startup():
-        if database_url:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        owns_db = False
+        owns_redis = False
+        if getattr(app.state, "db", None) is None:
+            if not database_url:
+                raise RuntimeError("DATABASE_URL is required for the hosted API service.")
             from agentgate.server.db import Database
             db = Database(dsn=database_url)
             await db.connect()
             await db.run_migrations()
             app.state.db = db
-
-        if redis_url:
+            owns_db = True
+        if getattr(app.state, "redis", None) is None:
+            if not redis_url:
+                raise RuntimeError("REDIS_URL is required for the hosted API service.")
             from arq import create_pool
             from arq.connections import RedisSettings
             app.state.redis = await create_pool(RedisSettings.from_dsn(redis_url))
-
+            owns_redis = True
         app.state.webhook_secret = webhook_secret
+        app.state.public_base_url = public_base_url
+        yield
+        if owns_db:
+            db = getattr(app.state, "db", None)
+            if db:
+                await db.disconnect()
+        if owns_redis:
+            redis = getattr(app.state, "redis", None)
+            if redis:
+                await redis.close()
 
-    @app.on_event("shutdown")
-    async def shutdown():
-        db = getattr(app.state, "db", None)
-        if db:
-            await db.disconnect()
-        redis = getattr(app.state, "redis", None)
-        if redis:
-            await redis.close()
+    app = FastAPI(
+        title="AgentGate Trust Scanning API",
+        version="2.0.0",
+        description="Hosted trust verification for AI agent marketplaces",
+        lifespan=lifespan,
+    )
+
+    app.include_router(health_router)
+    app.include_router(scans_router)
 
     return app
