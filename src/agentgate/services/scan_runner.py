@@ -489,6 +489,7 @@ class ScanRunner:
             }
         except ProbeError as exc:
             error = str(exc).strip() or "Agent never became usable enough for the mandatory live attack scan."
+            failure_reason = self._classify_probe_failure(exc)
             await self._emit_event(
                 event_callback,
                 status="failed",
@@ -497,21 +498,24 @@ class ScanRunner:
                 event_type="scan.failed",
                 payload={"target_url": target_url},
             )
+            report_payload: dict[str, object] = {
+                "phase": "live_attack_scan",
+                "status": "failed",
+                "detail": error,
+                "target_url": target_url,
+                "request_field": request_field,
+                "response_field": response_field,
+                "attack_hints": attack_hints,
+            }
+            if failure_reason == "boot_timeout":
+                report_payload["reachable_before_timeout"] = getattr(exc, "status_code", None) is not None
             return {
                 "phase": "live_attack_scan",
                 "status": "failed",
                 "usable": False,
                 "error": error,
-                "failure_reason": "live_attack_unusable",
-                "report": {
-                    "phase": "live_attack_scan",
-                    "status": "failed",
-                    "detail": error,
-                    "target_url": target_url,
-                    "request_field": request_field,
-                    "response_field": response_field,
-                    "attack_hints": attack_hints,
-                },
+                "failure_reason": failure_reason,
+                "report": report_payload,
             }
 
         usable = result.scorecard.total_tests_run > 0
@@ -827,6 +831,16 @@ class ScanRunner:
             response_field=response_field,
             request_defaults=self._security_request_defaults(target_url),
         )
+
+    @staticmethod
+    def _classify_probe_failure(exc: ProbeError) -> str:
+        if exc.status_code in (401, 403):
+            return "auth_required"
+        if exc.status_code == 404:
+            return "endpoint_not_found"
+        if exc.status_code is not None and exc.status_code >= 500:
+            return "deployment_unusable"
+        return "boot_timeout"
 
     def _build_security_scan_config(self, *, source_review: dict[str, object]) -> ScanConfig:
         detectors, case_limits = self._select_hosted_security_profile(source_review)

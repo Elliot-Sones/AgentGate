@@ -476,3 +476,33 @@ async def test_await_live_attack_readiness_raises_none_status_on_connection_erro
 
     exc = exc_info.value
     assert exc.status_code is None
+
+
+def test_classify_probe_failure_401_is_auth_required():
+    exc = ProbeError("HTTP 401", status_code=401)
+    assert ScanRunner._classify_probe_failure(exc) == "auth_required"
+
+
+def test_classify_probe_failure_403_is_auth_required():
+    exc = ProbeError("HTTP 403", status_code=403)
+    assert ScanRunner._classify_probe_failure(exc) == "auth_required"
+
+
+def test_classify_probe_failure_404_is_endpoint_not_found():
+    exc = ProbeError("HTTP 404", status_code=404)
+    assert ScanRunner._classify_probe_failure(exc) == "endpoint_not_found"
+
+
+def test_classify_probe_failure_500_is_deployment_unusable():
+    exc = ProbeError("HTTP 500", status_code=500)
+    assert ScanRunner._classify_probe_failure(exc) == "deployment_unusable"
+
+
+def test_classify_probe_failure_502_is_deployment_unusable():
+    exc = ProbeError("HTTP 502", status_code=502)
+    assert ScanRunner._classify_probe_failure(exc) == "deployment_unusable"
+
+
+def test_classify_probe_failure_none_status_is_boot_timeout():
+    exc = ProbeError("Connection refused", status_code=None)
+    assert ScanRunner._classify_probe_failure(exc) == "boot_timeout"
