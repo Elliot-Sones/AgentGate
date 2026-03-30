@@ -478,6 +478,28 @@ async def test_await_live_attack_readiness_raises_none_status_on_connection_erro
     assert exc.status_code is None
 
 
+def test_build_attack_hints_includes_auth_signal():
+    runner = ScanRunner(work_dir=Path("/tmp/agentgate-test-runner"))
+    mock_profile = GeneratedRuntimeProfile(auth_likely=True)
+    mock_result = MagicMock(spec=TrustScanResult)
+    mock_result.agent_overview = None
+    mock_result.findings = []
+    mock_result.generated_runtime_profile = mock_profile
+    hints = runner._build_attack_hints(mock_result)
+    assert "auth_signal:detected" in hints
+
+
+def test_build_attack_hints_omits_auth_signal_when_false():
+    runner = ScanRunner(work_dir=Path("/tmp/agentgate-test-runner"))
+    mock_profile = GeneratedRuntimeProfile(auth_likely=False)
+    mock_result = MagicMock(spec=TrustScanResult)
+    mock_result.agent_overview = None
+    mock_result.findings = []
+    mock_result.generated_runtime_profile = mock_profile
+    hints = runner._build_attack_hints(mock_result)
+    assert "auth_signal:detected" not in hints
+
+
 def test_classify_probe_failure_401_is_auth_required():
     exc = ProbeError("HTTP 401", status_code=401)
     assert ScanRunner._classify_probe_failure(exc) == "auth_required"

@@ -490,6 +490,22 @@ class ScanRunner:
         except ProbeError as exc:
             error = str(exc).strip() or "Agent never became usable enough for the mandatory live attack scan."
             failure_reason = self._classify_probe_failure(exc)
+            if failure_reason == "auth_required":
+                generated_profile = self._generated_profile_from_phase(source_review)
+                auth_likely = generated_profile.auth_likely if generated_profile else False
+                if auth_likely:
+                    error = (
+                        f"Agent returned HTTP {exc.status_code}. "
+                        "Static analysis detected auth patterns confirming the agent requires "
+                        "authentication credentials not available in sandbox."
+                    )
+                else:
+                    error = (
+                        f"Agent returned HTTP {exc.status_code}. "
+                        "No auth patterns were detected in source — the "
+                        f"{exc.status_code} may be from an upstream dependency or "
+                        "middleware not visible in code."
+                    )
             await self._emit_event(
                 event_callback,
                 status="failed",
@@ -769,6 +785,10 @@ class ScanRunner:
                 hints.append(f"prompt_surface:{finding.title}")
             elif finding.check_id == "static_code_signals":
                 hints.append(f"code_signal:{finding.title}")
+
+        generated_profile = getattr(result, "generated_runtime_profile", None)
+        if generated_profile is not None and getattr(generated_profile, "auth_likely", False):
+            hints.append("auth_signal:detected")
 
         deduped: list[str] = []
         seen: set[str] = set()
