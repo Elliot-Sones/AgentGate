@@ -70,6 +70,9 @@ class TrustFinding(BaseModel):
     expected: str = ""
     observed: str = ""
     evidence: list[EvidenceRef] = []
+    context: object | None = None
+    base_severity: TrustSeverity | None = None
+    legacy_interpretation: bool = False
 
 
 class TrustScorecard(BaseModel):
@@ -182,6 +185,7 @@ class GeneratedRuntimeProfile(BaseModel):
     integration_routes: dict[str, list[str]] = {}
     allow_domains: list[str] = []
     notes: list[str] = []
+    auth_likely: bool = False
 
 
 class DeploymentSummary(BaseModel):
@@ -200,10 +204,11 @@ class DeploymentSummary(BaseModel):
 
 
 class CoverageSummary(BaseModel):
-    level: str = "none"
+    level: str = "limited"
     exercised_surfaces: list[str] = []
     skipped_surfaces: list[str] = []
     notes: list[str] = []
+    coverage_recommendation: str | None = None
 
 
 class ConfidenceSummary(BaseModel):
