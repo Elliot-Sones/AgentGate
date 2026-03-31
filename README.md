@@ -230,7 +230,12 @@ We tested AgentGate against 9 real agents — from popular open-source framework
 | Tool misuse | Tests if tools can be invoked outside their scope |
 | Goal hijacking | Attempts to override the agent's objective |
 | XPIA | Cross-prompt instruction attacks via documents |
-| + 6 more | Harmful content, policy violation, reliability, scope adherence, input validation, hallucination |
+| Harmful content | Tests if the agent can be made to produce unsafe or toxic output |
+| Policy violation | Checks adherence to custom policy rules and constraints |
+| Reliability | Tests response consistency and performance under repeated queries |
+| Scope adherence | Verifies the agent stays within its declared purpose and boundaries |
+| Input validation | Tests handling of malformed, oversized, and adversarial inputs |
+| Hallucination | Checks if the agent fabricates facts or cites nonexistent sources |
 
 ### Adaptive trust specialists (LLM-powered deep probes)
 
