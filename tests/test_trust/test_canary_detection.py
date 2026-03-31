@@ -1,15 +1,23 @@
 from __future__ import annotations
 
-from agentgate.trust.runtime.canary_detection import (
-    CanaryBank,
-    detect_canary_matches,
-)
+from importlib import import_module
+
+from agentgate.trust.runtime.canary_bank import CanaryBank
+
+
+def _detect_canary_matches(bank: CanaryBank, text: str):
+    return import_module("agentgate.trust.runtime.canary_detection").detect_canary_matches(
+        bank,
+        text,
+    )
 
 
 def _match_for(text: str, *, profile: str = "standard", key: str) -> object:
     bank = CanaryBank(profile=profile)
-    matches = detect_canary_matches(bank, text)
-    return next(match for match in matches if match.key == key)
+    matches = _detect_canary_matches(bank, text)
+    match = next((candidate for candidate in matches if candidate.key == key), None)
+    assert match is not None, f"Expected a canary match for {key} in {text!r}"
+    return match
 
 
 def test_detects_base64_decoded_canary_value() -> None:
@@ -55,5 +63,5 @@ def test_detects_unicode_confusable_canary_email() -> None:
 
 def test_ignores_undecodable_partial_strings() -> None:
     bank = CanaryBank()
-    matches = detect_canary_matches(bank, "ps_live_canary_8f9d2")
+    matches = _detect_canary_matches(bank, "ps_live_canary_8f9d2")
     assert matches == []
