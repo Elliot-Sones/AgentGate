@@ -327,3 +327,120 @@ def test_orchestrator_works_without_log_fetcher() -> None:
         report = orchestrator._run_specialist("tool_exerciser", bundle)
 
     assert report.railway_logs == ""
+
+
+def test_phase2_receives_phase1_findings() -> None:
+    bundle = _make_bundle()
+
+    dispatch_plan = json.dumps(
+        {
+            "phases": [
+                {"agents": ["egress_prober"], "parallel": False, "reason": "Phase 1"},
+                {"agents": ["behavior_consistency"], "parallel": False, "reason": "Phase 2"},
+            ]
+        }
+    )
+    mock_client = _mock_anthropic_client([dispatch_plan])
+
+    orchestrator = AdaptiveProbeOrchestrator(api_key="test-key")
+
+    captured_bundles: list[ContextBundle] = []
+
+    def _make_report(
+        specialist: str,
+        *,
+        findings: list[str],
+        probe_bodies: list[str],
+    ) -> SpecialistReport:
+        return SpecialistReport(
+            specialist=specialist,
+            probes_sent=len(probe_bodies),
+            probes_succeeded=len(probe_bodies),
+            probe_results=[
+                ProbeResult(
+                    specialist=specialist,
+                    method="POST",
+                    path="/api/v1/chat",
+                    request_body={"question": body},
+                    status_code=200,
+                    response_body=body,
+                    content_type="application/json",
+                )
+                for body in probe_bodies
+            ],
+            findings=findings,
+            severity="high" if findings else "info",
+        )
+
+    def capturing_run(name, b, log_fetcher=None):
+        captured_bundles.append(b)
+        if name == "egress_prober":
+            return _make_report(
+                name,
+                findings=["Undeclared egress to attacker.example"],
+                probe_bodies=["alpha", "beta"],
+            )
+        return _make_report(name, findings=[], probe_bodies=["gamma", "delta"])
+
+    with (
+        patch.object(orchestrator, "_get_client", return_value=mock_client),
+        patch.object(orchestrator, "_run_specialist", side_effect=capturing_run),
+        patch.object(
+            orchestrator,
+            "_evaluate_health_gate",
+            return_value={
+                "passed": True,
+                "detail": "At least one probe reached the application process.",
+                "probe_results": [],
+            },
+        ),
+    ):
+        orchestrator.run(bundle)
+
+    # Phase 1 specialist (egress_prober) should have empty prior findings
+    assert captured_bundles[0].prior_specialist_findings == []
+    # Phase 2 specialist (behavior_consistency) should have phase 1 findings
+    assert len(captured_bundles[1].prior_specialist_findings) == 1
+    assert captured_bundles[1].prior_specialist_findings[0]["specialist"] == "egress_prober"
+    assert captured_bundles[1].prior_specialist_findings[0]["severity"] == "high"
+
+
+def test_orchestrator_skips_specialists_when_health_gate_fails() -> None:
+    bundle = _make_bundle()
+
+    dispatch_plan = json.dumps(
+        {
+            "phases": [
+                {
+                    "agents": ["tool_exerciser", "behavior_consistency"],
+                    "parallel": True,
+                    "reason": "Phase 1",
+                }
+            ]
+        }
+    )
+    mock_client = _mock_anthropic_client([dispatch_plan])
+    orchestrator = AdaptiveProbeOrchestrator(api_key="test-key")
+
+    with (
+        patch.object(orchestrator, "_get_client", return_value=mock_client),
+        patch.object(
+            orchestrator,
+            "_evaluate_health_gate",
+            return_value={
+                "passed": False,
+                "detail": "All health probes returned transport/proxy failures.",
+                "probe_results": [],
+            },
+        ),
+        patch.object(orchestrator, "_run_specialist") as mock_run_specialist,
+    ):
+        probe_responses, reports = orchestrator.run(bundle)
+
+    assert probe_responses == []
+    assert mock_run_specialist.call_count == 0
+    assert [report.dispatch.status for report in reports] == ["skipped", "skipped"]
+    assert all(report.probes_sent == 0 for report in reports)
+    assert all(report.dispatch is not None for report in reports)
+    assert all(report.dispatch.precondition == "health_gate_passed" for report in reports)
+    assert all("unresponsive" in report.dispatch.skip_reason for report in reports)

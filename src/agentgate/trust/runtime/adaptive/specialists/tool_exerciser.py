@@ -40,6 +40,7 @@ class ToolExerciser(BaseSpecialist):
             "Task: Generate probe queries that:\n"
             "1. Trigger each declared tool at least once with a realistic user query.\n"
             "2. Include 1-2 queries that should NOT trigger any tool (off-topic questions).\n\n"
+            f"{self._format_prior_findings(context)}"
             "Respond with ONLY valid JSON in this exact format:\n"
             '{"probes": [{"method": "POST", "path": "/api/v1/chat", "body": {"question": "..."}, "rationale": "..."}]}'
         )

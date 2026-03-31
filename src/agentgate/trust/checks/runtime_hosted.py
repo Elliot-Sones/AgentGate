@@ -83,7 +83,7 @@ class HostedRuntimeCheck(BaseTrustCheck):
             adaptive_model=ctx.config.adaptive_trust_model,
             source_dir=ctx.source_dir,
             manifest=ctx.manifest,
-            static_findings=list(ctx.config.dependency_inference_notes),
+            static_findings=list(ctx.prior_findings) + list(ctx.config.dependency_inference_notes),
         )
         trace = runner.run_profile(
             profile="hosted",

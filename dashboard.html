@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentGate — Scan Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
+  .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+  h1 { font-size: 24px; font-weight: 600; margin-bottom: 8px; color: #fff; }
+  .subtitle { color: #888; font-size: 14px; margin-bottom: 32px; }
+  .form-section { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+  .form-row { margin-bottom: 16px; }
+  .form-row:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 12px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  input { width: 100%; padding: 10px 14px; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; font-family: 'SF Mono', 'Fira Code', monospace; }
+  input:focus { outline: none; border-color: #4f8ff7; }
+  input::placeholder { color: #555; }
+  button { padding: 10px 24px; background: #4f8ff7; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  button:hover { background: #3d7de5; }
+  button:disabled { background: #333; color: #666; cursor: not-allowed; }
+  .events-section { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 24px; display: none; }
+  .events-section.active { display: block; }
+  .section-title { font-size: 14px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px; }
+  .event-list { list-style: none; }
+  .event-item { padding: 10px 0; border-bottom: 1px solid #1a1a1a; display: flex; gap: 12px; align-items: flex-start; font-size: 13px; font-family: 'SF Mono', 'Fira Code', monospace; }
+  .event-item:last-child { border-bottom: none; }
+  .event-time { color: #555; white-space: nowrap; min-width: 80px; }
+  .event-icon { font-size: 14px; min-width: 20px; text-align: center; }
+  .event-icon.progress { color: #f0c040; }
+  .event-icon.done { color: #4ade80; }
+  .event-icon.fail { color: #f87171; }
+  .event-detail { color: #ccc; }
+  .event-detail .phase { color: #4f8ff7; font-weight: 500; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #333; border-top-color: #4f8ff7; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .verdict-section { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 24px; display: none; }
+  .verdict-section.active { display: block; }
+  .verdict-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .verdict-badge.allow_clean { background: #0a2e1a; color: #4ade80; border: 1px solid #166534; }
+  .verdict-badge.allow_with_warnings { background: #2a2000; color: #f0c040; border: 1px solid #854d0e; }
+  .verdict-badge.manual_review { background: #1a1a2e; color: #818cf8; border: 1px solid #3730a3; }
+  .verdict-badge.block { background: #2e0a0a; color: #f87171; border: 1px solid #991b1b; }
+  .verdict-badge.failed { background: #1a1a1a; color: #888; border: 1px solid #333; }
+  .verdict-row { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+  .verdict-label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+  .score-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+  .score-card { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 12px; text-align: center; }
+  .score-card .num { font-size: 28px; font-weight: 700; color: #fff; }
+  .score-card .label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  .score-card.passed .num { color: #4ade80; }
+  .score-card.failed-card .num { color: #f87171; }
+  .failure-reason { margin-top: 16px; padding: 12px 16px; background: #1a0a0a; border: 1px solid #331a1a; border-radius: 8px; }
+  .failure-reason .reason-code { color: #f87171; font-weight: 600; font-family: 'SF Mono', monospace; }
+  .failure-reason .reason-detail { color: #aaa; font-size: 13px; margin-top: 6px; }
+  .report-section { background: #141414; border: 1px solid #222; border-radius: 12px; padding: 24px; margin-bottom: 24px; display: none; }
+  .report-section.active { display: block; }
+  .report-json { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 16px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; color: #ccc; white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; }
+  .findings-list { margin-top: 16px; }
+  .finding-card { background: #0a0a0a; border: 1px solid #222; border-radius: 8px; padding: 14px; margin-bottom: 8px; }
+  .finding-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .severity { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .severity.critical { background: #3b0a0a; color: #f87171; }
+  .severity.high { background: #3b1a0a; color: #fb923c; }
+  .severity.medium { background: #2a2000; color: #f0c040; }
+  .severity.low { background: #0a2e1a; color: #4ade80; }
+  .severity.info { background: #1a1a2e; color: #818cf8; }
+  .finding-title { font-weight: 600; color: #ddd; font-size: 13px; }
+  .finding-summary { color: #888; font-size: 12px; margin-top: 4px; }
+  .scan-id-display { font-family: 'SF Mono', monospace; color: #4f8ff7; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>AgentGate</h1>
+  <p class="subtitle">Trust verification for AI agent marketplaces</p>
+
+  <div class="form-section">
+    <div class="form-row">
+      <label>API URL</label>
+      <input type="text" id="apiUrl" value="https://agentgate-production-feed.up.railway.app" />
+    </div>
+    <div class="form-row">
+      <label>API Key</label>
+      <input type="password" id="apiKey" value="agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" />
+    </div>
+    <div class="form-row">
+      <label>Repository URL</label>
+      <input type="text" id="repoUrl" placeholder="https://github.com/owner/repo" />
+    </div>
+    <div class="form-row">
+      <button id="scanBtn" onclick="startScan()">Start Scan</button>
+    </div>
+  </div>
+
+  <div class="events-section" id="eventsSection">
+    <div class="section-title">Live Progress</div>
+    <div class="scan-id-display" id="scanIdDisplay"></div>
+    <ul class="event-list" id="eventList"></ul>
+  </div>
+
+  <div class="verdict-section" id="verdictSection">
+    <div class="section-title">Verdict</div>
+    <div id="verdictContent"></div>
+  </div>
+
+  <div class="report-section" id="reportSection">
+    <div class="section-title">Findings</div>
+    <div id="findingsContent"></div>
+    <details style="margin-top:16px;">
+      <summary style="cursor:pointer;color:#666;font-size:12px;">Raw Report JSON</summary>
+      <div class="report-json" id="reportJson"></div>
+    </details>
+  </div>
+</div>
+
+<script>
+let scanId = null;
+let eventSource = null;
+
+function ts() {
+  return new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function addEvent(icon, iconClass, detail) {
+  const li = document.createElement('li');
+  li.className = 'event-item';
+  li.innerHTML = `<span class="event-time">${ts()}</span><span class="event-icon ${iconClass}">${icon}</span><span class="event-detail">${detail}</span>`;
+  document.getElementById('eventList').appendChild(li);
+  li.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function startScan() {
+  const apiUrl = document.getElementById('apiUrl').value.replace(/\/$/, '');
+  const apiKey = document.getElementById('apiKey').value;
+  const repoUrl = document.getElementById('repoUrl').value;
+
+  if (!repoUrl) { alert('Enter a repository URL'); return; }
+
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('scanBtn').textContent = 'Scanning...';
+  document.getElementById('eventsSection').className = 'events-section active';
+  document.getElementById('eventList').innerHTML = '';
+  document.getElementById('verdictSection').className = 'verdict-section';
+  document.getElementById('reportSection').className = 'report-section';
+
+  addEvent('●', 'progress', 'Creating scan...');
+
+  try {
+    const resp = await fetch(`${apiUrl}/v1/scans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ repo_url: repoUrl })
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      addEvent('✗', 'fail', `Error ${resp.status}: ${data.error || ''} — ${data.detail || JSON.stringify(data)}`);
+      resetButton();
+      return;
+    }
+
+    scanId = data.id;
+    document.getElementById('scanIdDisplay').textContent = `Scan: ${scanId}`;
+    addEvent('✓', 'done', `Scan created — <span class="phase">${scanId}</span>`);
+
+    streamEvents(apiUrl, apiKey, scanId);
+  } catch (err) {
+    addEvent('✗', 'fail', `Network error: ${err.message}`);
+    resetButton();
+  }
+}
+
+function streamEvents(apiUrl, apiKey, scanId) {
+  const url = `${apiUrl}/v1/scans/${scanId}/events?stream=true`;
+
+  // SSE doesn't support custom headers, so we poll instead
+  let cursor = 0;
+  const poll = async () => {
+    try {
+      const resp = await fetch(`${apiUrl}/v1/scans/${scanId}/events?after=${cursor}&limit=100`, {
+        headers: { 'X-API-Key': apiKey }
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+
+      for (const event of data.events || []) {
+        cursor = Math.max(cursor, event.id);
+        const phase = event.phase || '';
+        const detail = event.detail || '';
+        const status = event.status || '';
+        const eventType = event.event_type || '';
+
+        let icon = '●', iconClass = 'progress';
+        if (eventType === 'scan.failed' || status === 'failed') { icon = '✗'; iconClass = 'fail'; }
+        else if (phase.endsWith('_completed') || phase === 'deployment_live' || phase === 'hosted_target_ready') { icon = '✓'; iconClass = 'done'; }
+
+        let text = detail;
+        if (event.payload) {
+          if (event.payload.target_url) text += ` → <span class="phase">${event.payload.target_url}</span>`;
+          if (event.payload.tests_run != null) text += ` — ${event.payload.tests_run} tests, ${event.payload.finding_count || 0} findings`;
+          if (event.payload.failure_reason) text += ` — <span class="phase">${event.payload.failure_reason}</span>`;
+        }
+
+        addEvent(icon, iconClass, text);
+      }
+
+      // Check if scan is done
+      const scanResp = await fetch(`${apiUrl}/v1/scans/${scanId}`, { headers: { 'X-API-Key': apiKey } });
+      const scanData = await scanResp.json();
+
+      if (scanData.status === 'completed' || scanData.status === 'failed') {
+        addEvent(scanData.status === 'completed' ? '✓' : '✗',
+                 scanData.status === 'completed' ? 'done' : 'fail',
+                 `Scan ${scanData.status}`);
+        showVerdict(scanData);
+        if (scanData.status === 'completed' || scanData.report_url) {
+          fetchReport(apiUrl, apiKey, scanId);
+        }
+        resetButton();
+        return;
+      }
+
+      setTimeout(poll, 1500);
+    } catch (err) {
+      addEvent('✗', 'fail', `Poll error: ${err.message}`);
+      setTimeout(poll, 3000);
+    }
+  };
+
+  setTimeout(poll, 1000);
+}
+
+function explainFailure(reason, error) {
+  const explanations = {
+    auth_required: {
+      title: 'Authentication Required',
+      description: 'The agent returned 401/403 during live probing. It requires authentication credentials (API key, Bearer token, or login) that AgentGate cannot simulate in its sandbox environment.',
+      action: 'Provide test credentials or a sandbox environment where the agent can be probed without authentication. Alternatively, submit a trust manifest with auth configuration.',
+    },
+    endpoint_not_found: {
+      title: 'Endpoint Not Found',
+      description: 'The live target endpoint returned 404. AgentGate discovered the agent\'s API surface but the selected endpoint does not exist or has a different path than expected.',
+      action: 'Verify the agent exposes an HTTP endpoint at the expected path. If the agent uses a non-standard route, provide an OpenAPI spec or trust manifest with the correct entrypoint.',
+    },
+    deployment_unusable: {
+      title: 'Deployment Not Responding',
+      description: 'The agent was deployed but returned 5xx errors. It booted but is not serving usable responses — likely a missing dependency, configuration error, or runtime crash.',
+      action: 'Check the agent\'s logs for startup errors. Common causes: missing environment variables, database connection failures, or incompatible Python dependencies.',
+    },
+    boot_timeout: {
+      title: 'Agent Never Started',
+      description: 'The agent was deployed but never became reachable over HTTP within the 60-second timeout. It may have crashed on startup, entered an infinite loop, or failed to bind to the expected port.',
+      action: 'Ensure the agent starts an HTTP server on the PORT environment variable (default 8000). Check that the Dockerfile CMD actually launches the server process.',
+    },
+    deployment_failed: {
+      title: 'Deployment Failed',
+      description: 'The agent could not be built or deployed to the sandbox environment. This usually means the repository is missing a Dockerfile, has build errors, or is not structured as a deployable service.',
+      action: 'Ensure the repository contains a Dockerfile that builds and runs successfully. The agent must be a deployable HTTP service, not a library or CLI tool. Static analysis still ran — see findings below.',
+    },
+    live_attack_timeout: {
+      title: 'Scan Timed Out',
+      description: 'The live security scan exceeded the 12-minute time limit. The agent was responding but the security detectors could not complete within the allowed window.',
+      action: 'This may indicate the agent is very slow to respond. Consider optimizing agent response times or contact support to increase the scan timeout.',
+    },
+    live_attack_unusable: {
+      title: 'Security Tests Could Not Execute',
+      description: 'The agent was reachable and responded to probes, but the security detectors could not execute any meaningful tests against it. The agent may not be responding with usable content.',
+      action: 'Verify the agent returns meaningful responses (not empty or error pages) when given natural language input. Check that the request/response format matches what AgentGate expects.',
+    },
+    scan_failed: {
+      title: 'Scan Failed',
+      description: 'An unexpected error occurred during the scan. This is typically an internal issue rather than a problem with the submitted agent.',
+      action: 'Retry the scan. If the issue persists, check the scan events for specific error details or contact support.',
+    },
+  };
+
+  const match = explanations[reason];
+  if (match) return match;
+
+  return {
+    title: reason.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    description: error || 'The scan could not complete for an unexpected reason.',
+    action: 'Review the scan events and full report for details. Retry if the issue appears transient.',
+  };
+}
+
+function showVerdict(scanData) {
+  const section = document.getElementById('verdictSection');
+  section.className = 'verdict-section active';
+
+  let html = '<div class="verdict-row">';
+
+  if (scanData.verdict) {
+    html += `<span class="verdict-badge ${scanData.verdict}">${scanData.verdict.replace(/_/g, ' ')}</span>`;
+  } else {
+    html += `<span class="verdict-badge failed">failed</span>`;
+  }
+
+  if (scanData.coverage_status) {
+    html += `<span style="color:#666;font-size:12px;">Coverage: ${scanData.coverage_status}</span>`;
+  }
+  html += '</div>';
+
+  if (scanData.score) {
+    html += `<div class="score-grid">
+      <div class="score-card"><div class="num">${scanData.score.checks_run}</div><div class="label">Checks Run</div></div>
+      <div class="score-card passed"><div class="num">${scanData.score.checks_passed}</div><div class="label">Passed</div></div>
+      <div class="score-card failed-card"><div class="num">${scanData.score.checks_failed}</div><div class="label">Failed</div></div>
+    </div>`;
+  }
+
+  if (scanData.failure_reason) {
+    const explanation = scanData.failure_explanation || explainFailure(scanData.failure_reason, scanData.error);
+    html += `<div class="failure-reason">
+      <div class="reason-code">${explanation.title || explanation.reason || scanData.failure_reason}</div>
+      <div class="reason-detail">${explanation.description || scanData.error || ''}</div>
+      ${explanation.action ? `<div class="reason-detail" style="color:#4f8ff7;margin-top:8px;">What to do: ${explanation.action}</div>` : ''}
+    </div>`;
+  }
+
+  document.getElementById('verdictContent').innerHTML = html;
+}
+
+async function fetchReport(apiUrl, apiKey, scanId) {
+  try {
+    const resp = await fetch(`${apiUrl}/v1/scans/${scanId}/report`, { headers: { 'X-API-Key': apiKey } });
+    if (!resp.ok) return;
+    const report = await resp.json();
+
+    document.getElementById('reportSection').className = 'report-section active';
+
+    // Render findings
+    const findings = extractFindings(report);
+    let findingsHtml = '';
+    if (findings.length === 0) {
+      findingsHtml = '<div style="color:#666;font-size:13px;">No findings reported.</div>';
+    }
+    for (const f of findings) {
+      const sev = (f.severity || 'info').toLowerCase();
+      findingsHtml += `<div class="finding-card">
+        <div class="finding-header">
+          <span class="severity ${sev}">${sev}</span>
+          <span class="finding-title">${esc(f.title || f.check_id || 'Finding')}</span>
+        </div>
+        ${f.summary ? `<div class="finding-summary">${esc(f.summary)}</div>` : ''}
+        ${f.recommendation ? `<div class="finding-summary" style="color:#4f8ff7;margin-top:4px;">→ ${esc(f.recommendation)}</div>` : ''}
+      </div>`;
+    }
+    document.getElementById('findingsContent').innerHTML = findingsHtml;
+    document.getElementById('reportJson').textContent = JSON.stringify(report, null, 2);
+  } catch (err) {
+    console.error('Report fetch failed:', err);
+  }
+}
+
+function extractFindings(report) {
+  if (Array.isArray(report.findings)) return report.findings;
+  const all = [];
+  if (report.source_review?.result?.findings) all.push(...report.source_review.result.findings);
+  if (report.adaptive_review?.result?.findings) all.push(...report.adaptive_review.result.findings);
+  if (report.live_attack?.report?.findings) all.push(...report.live_attack.report.findings);
+  // Also check results_by_detector
+  const rbd = report.live_attack?.report?.results_by_detector;
+  if (rbd && all.length === 0) {
+    for (const [detector, results] of Object.entries(rbd)) {
+      for (const r of results) {
+        if (r.passed === false) {
+          all.push({ title: r.test_case?.name || detector, severity: 'high', summary: r.response?.substring(0, 200) });
+        }
+      }
+    }
+  }
+  return all;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function resetButton() {
+  document.getElementById('scanBtn').disabled = false;
+  document.getElementById('scanBtn').textContent = 'Start Scan';
+}
+</script>
+</body>
+</html>

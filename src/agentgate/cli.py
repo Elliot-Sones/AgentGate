@@ -1350,6 +1350,7 @@ def _supports_railway_source_refinement(source_dir: Path | None) -> bool:
         return False
     markers = (
         "Dockerfile",
+        "Dockerfile.api",
         "railway.toml",
         "docker-compose.yml",
         "docker-compose.yaml",
@@ -1374,6 +1375,11 @@ def _deploy_submission_for_scan(
 
     deployment = _build_railway_executor_from_config(config).deploy_submission(
         source_dir=config.source_dir,
+        dockerfile_path=(
+            Path(runtime_profile.dockerfile_path)
+            if runtime_profile is not None and runtime_profile.dockerfile_path
+            else config.dockerfile_path
+        ),
         dependencies=config.dependencies,
         runtime_env=runtime_env,
         issued_integrations=(
@@ -1411,6 +1417,7 @@ def _prepare_submission_profile_for_scan(
         manifest=ctx.manifest,
         dependencies=ctx.config.dependencies,
         runtime_env=ctx.config.runtime_env,
+        dockerfile_path=ctx.config.dockerfile_path,
         enforce_production_contract=config.strict_production_contract,
     )
 

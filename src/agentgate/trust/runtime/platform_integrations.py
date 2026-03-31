@@ -239,6 +239,26 @@ def issue_platform_credentials(
     return issued_env, issued, missing
 
 
+def issue_all_available_credentials() -> dict[str, str]:
+    """Read all AGENTGATE_PLATFORM_* env vars and return the runtime keys they map to.
+
+    Unlike issue_platform_credentials(), this does not require source-level integration
+    detection.  It simply checks which platform env vars are set on the worker and returns
+    the corresponding runtime keys so they can be injected into any deployed agent.
+    """
+    credentials: dict[str, str] = {}
+    for spec in SUPPORTED_PLATFORM_INTEGRATIONS.values():
+        for runtime_key, platform_env in spec.env_map.items():
+            value = os.environ.get(platform_env, "").strip()
+            if value:
+                credentials[runtime_key] = value
+        for runtime_key, platform_env in (spec.optional_platform_env or {}).items():
+            value = os.environ.get(platform_env, "").strip()
+            if value:
+                credentials[runtime_key] = value
+    return credentials
+
+
 def resolve_platform_sandboxes(integrations: list[str]) -> list[PlatformSandboxStatus]:
     statuses: list[PlatformSandboxStatus] = []
     for integration in integrations:

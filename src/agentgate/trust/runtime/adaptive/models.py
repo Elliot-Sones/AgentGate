@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass
@@ -15,6 +16,7 @@ class ContextBundle:
     customer_data_access: list[str] = field(default_factory=list)
     permissions: list[str] = field(default_factory=list)
     openapi_spec: dict | None = None
+    prior_specialist_findings: list[dict] = field(default_factory=list)
 
     def source_summary(self, max_chars: int = 8000) -> str:
         parts: list[str] = []
@@ -71,6 +73,14 @@ class ProbeResult:
 
 
 @dataclass
+class SpecialistDispatchResult:
+    specialist: str
+    status: Literal["executed", "skipped", "failed"] = "executed"
+    skip_reason: str = ""
+    precondition: str = ""
+
+
+@dataclass
 class SpecialistReport:
     specialist: str
     probes_sent: int
@@ -80,6 +90,7 @@ class SpecialistReport:
     evidence: list[str] = field(default_factory=list)
     severity: str = "info"
     railway_logs: str = ""
+    dispatch: SpecialistDispatchResult | None = None
 
     @property
     def has_findings(self) -> bool:

@@ -14,79 +14,142 @@
   <a href="https://github.com/Elliot-Sones/AgentGate"><img src="https://img.shields.io/badge/version-2.0.0-green?style=flat-square" alt="Version 2.0.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-brightgreen?style=flat-square" alt="MIT License"></a>
 
-</div>
+<br><br>
 
-AgentGate is a trust and verification engine for AI solution marketplaces.
+**Trust and verification engine for AI agent marketplaces.**<br>
+One API call to scan any agent. Real-time results. Typed verdicts.
 
-The PromptShop-oriented demo in this repo shows how a marketplace could verify
-that a seller-submitted AI solution actually behaves the way it claims before it
-is listed for buyers. A seller provides source code, a hosted endpoint, and a
-trust manifest. AgentGate compares declared versus observed behavior on the live
-deployment and returns a reviewer-friendly verdict:
-`ALLOW_CLEAN`, `ALLOW_WITH_WARNINGS`, `MANUAL_REVIEW`, or `BLOCK`.
-
-Instead of pitching this as "just another AI security scanner," the repo now
-frames AgentGate as the engine behind a curated marketplace workflow:
-
-- seller submission review
-- marketplace trust reports
-- reviewer approval guidance
-- buyer-facing trust signals for listings
-
-<div align="center">
-<img src="assets/terminal-demo.svg" alt="AgentGate scanning a stealth exfiltration agent" width="640">
 </div>
 
 ---
 
-## PromptShop Demo
+## Live Demo
 
-This repository includes a PromptShop-style marketplace trust workflow demo.
-It keeps **AgentGate** as the engine while packaging the outputs as something a
-marketplace CTO or review team could actually use.
+One `POST /v1/scans` triggers the full pipeline: clone, static analysis, deploy, live attack probes, verdict.
 
-### Demo story
+<div align="center">
+<img src="assets/scan-demo.gif" alt="AgentGate scanning a live agent in real-time" width="720">
+</div>
 
-1. A seller submits a support or analytics solution.
-2. AgentGate scans the source, manifest, and container image.
-3. The reviewer gets a publish recommendation with evidence.
-4. The listing can expose a compact trust summary to buyers.
+---
 
-### Demo commands
+## How It Works
 
-```bash
-# Build the original three demo images
-cd demo_agents && ./run_demo.sh
+AgentGate uses **staged confidence** to verify AI agents before they're listed on a marketplace. Each stage adds evidence. If any stage can't complete, the system classifies why and returns what it has.
+
+```mermaid
+flowchart TD
+    subgraph intake["1. Intake"]
+        A["POST /v1/scans"] --> B["Validate + Queue"]
+        B --> C["Clone Repo"]
+        C --> D["Load Manifest\n(optional)"]
+    end
+
+    subgraph static["2. Static Analysis"]
+        E["Code Signals\n(regex scan)"]
+        F["Prompt/Tool\nInspection"]
+        G["Dependency\nRisk Check"]
+        H["Auth Detection\n+ Env Inference"]
+    end
+
+    subgraph deploy["3. Deploy + Probe"]
+        I["Deploy to\nRailway"] --> J["OpenAPI\nDiscovery"]
+        J --> K["Live Attack\n(12 detectors)"]
+        K --> L["Adaptive Specialists\n(egress, canary, etc)"]
+    end
+
+    subgraph verdict["4. Verdict"]
+        M["ALLOW CLEAN"]
+        N["ALLOW WITH WARNINGS"]
+        O["MANUAL REVIEW"]
+        P["BLOCK"]
+    end
+
+    intake --> static
+    static --> deploy
+    deploy --> verdict
+
+    style M fill:#b2f2bb,stroke:#22c55e,stroke-width:3px
+    style N fill:#fff3bf,stroke:#f59e0b,stroke-width:3px
+    style O fill:#d0bfff,stroke:#8b5cf6,stroke-width:3px
+    style P fill:#ffc9c9,stroke:#ef4444,stroke-width:3px
 ```
 
+> [View the interactive architecture diagram on Excalidraw](https://excalidraw.com/#json=Gm2uoDh9W1f_1CgCF7nSf,OJThIK4ff4P80NnhqJzyZA)
+
+### The five stages
+
+| Stage | What happens | If it fails |
+|-------|-------------|-------------|
+| **1. Optional manifest** | If present, treated as a hint source | Scan continues without it |
+| **2. Static inference** | Extracts env vars, framework, auth patterns, probe paths, dependencies | Always runs |
+| **3. Deploy with safe defaults** | Fills missing config with sandbox values, deploys to Railway | `deployment_failed` with explanation |
+| **4. Live verification** | Probes real endpoints, discovers OpenAPI, runs 12 security detectors | `auth_required`, `endpoint_not_found`, `deployment_unusable`, or `boot_timeout` |
+| **5. Verdict or classify** | If enough evidence, verdict. If not, typed failure reason. | Never crashes — always returns a result |
+
+---
+
+## Hosted API
+
+AgentGate runs as a hosted service. One API call does everything.
+
+### Start a scan
+
 ```bash
-# Generate the PromptShop-oriented trust workflow artifacts
-cd demo_agents && ./run_promptshop_demo.sh
+curl -X POST https://your-api.railway.app/v1/scans \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: agk_live_<key_id>.<secret>" \
+  -d '{"repo_url": "https://github.com/seller/their-agent"}'
 ```
 
-### Supporting docs
-
-- [`demo_agents/PROMPTSHOP_DEMO.md`](demo_agents/PROMPTSHOP_DEMO.md) - short live walkthrough
-- [`docs/promptshop_founder_memo.md`](docs/promptshop_founder_memo.md) - founder / CTO positioning memo
-- [`docs/promptshop_engineering_brief.md`](docs/promptshop_engineering_brief.md) - engineering-facing architecture brief
-- [`docs/trust_benchmarking.md`](docs/trust_benchmarking.md) - benchmark harness and presentation notes
-
-## Benchmark Harness
-
-The repo includes a small trust benchmark harness so you can compare AgentGate's
-full trust scan against a `static_only` baseline on the PromptShop demo corpus.
+### Watch it in real-time (SSE)
 
 ```bash
-PYTHONPATH=src python3 scripts/benchmark_trust_scan.py --build-images
+curl -H "X-API-Key: <key>" \
+  "https://your-api.railway.app/v1/scans/<scan_id>/events?stream=true"
 ```
 
-This writes a markdown summary and JSON metrics to `benchmark_output/trust/`
-and is designed to generate founder-friendly evidence like:
+### Get the report
 
-- malicious detection rate
-- clean auto-approve rate
-- average scan time
-- which cases a weaker baseline missed
+```bash
+curl -H "X-API-Key: <key>" \
+  "https://your-api.railway.app/v1/scans/<scan_id>/report"
+```
+
+### API features
+
+- **Input validation** with SSRF protection — rejects private IPs, localhost, DNS rebinding
+- **Consistent error envelope** — every error returns `{"error": "<code>", "detail": "<message>"}`
+- **Per-API-key rate limiting** on scan creation (10/min)
+- **Deep health check** — probes Postgres and Redis, returns 503 if either is down
+- **Typed failure reasons** — `auth_required`, `endpoint_not_found`, `deployment_unusable`, `boot_timeout`, `deployment_failed`
+- **Human-readable failure explanations** — every failure includes a title, description, and actionable next step
+- **Webhook delivery** with HMAC-SHA256 signing and DNS-resolution SSRF guard
+- **SSE event streaming** with resumable cursors via `Last-Event-ID`
+- **Idempotency keys** for exactly-once scan creation
+
+---
+
+## The Verdicts
+
+| Verdict | What happens | When |
+|---|---|---|
+| `ALLOW_CLEAN` | Agent is published automatically | Everything matched its declarations |
+| `ALLOW_WITH_WARNINGS` | Published with notes for the reviewer | Minor issues (e.g. missing dependency lockfile) |
+| `MANUAL_REVIEW` | Sent to a human to decide | Concerning signals (e.g. hidden instructions in prompts) |
+| `BLOCK` | Rejected | Undeclared network connections, stolen credentials, or serious runtime integrity issues detected |
+
+### When scans can't complete
+
+| Failure reason | What it means | What to do |
+|---|---|---|
+| `auth_required` | Agent returned 401/403 | Provide test credentials or sandbox environment |
+| `endpoint_not_found` | Target path returned 404 | Check the agent's API routes |
+| `deployment_unusable` | Agent returned 5xx | Check for missing env vars or dependencies |
+| `boot_timeout` | Agent never became reachable | Ensure it binds to PORT and starts an HTTP server |
+| `deployment_failed` | Docker build failed | Provide a working Dockerfile |
+
+---
 
 ## What We Found
 
@@ -109,61 +172,48 @@ We tested AgentGate against 5 real agents — including two popular open-source 
 - **0 false positives**
 - **12 security vectors** checked per scan
 
-```bash
-# Try it yourself — builds and scans all 3 demo agents
-cd demo_agents && ./run_demo.sh
-```
-
 ---
 
-## How It Works
+## Security Checks
 
-You submit three things: the agent's source code, its hosted endpoint, and a trust manifest (a YAML file where the developer declares what the agent does — which tools it uses, which external domains it calls).
+### Static analysis (runs on source code)
 
-AgentGate then checks whether the agent actually does what it claims:
+| Check | What it finds |
+|---|---|
+| Code signals | `exec()`, `subprocess`, `importlib`, `socket.connect`, `base64.b64decode` |
+| Prompt/tool inspection | Hidden instructions, prompt overrides, secret exfiltration directives |
+| Dependency risk | Typosquatted packages, missing lockfiles, known malicious deps |
+| Provenance | Unpinned images, missing cosign signatures |
+| Auth detection | FastAPI `Depends`, `@login_required`, `Authorization` header access |
 
-**1. It reads the code** — looking for red flags like hidden instructions in prompts, suspicious dependencies, or outbound HTTP calls the manifest didn't mention.
+### Live attack probes (runs against deployed agent)
 
-**2. It inspects the hosted runtime context** — using Railway metadata and logs to understand what the deployed agent is connected to, whether the deployment is healthy, and what backing services are present.
+| Detector | What it tests |
+|---|---|
+| Prompt injection | DAN jailbreaks, role-play attacks, instruction overrides |
+| System prompt leak | Attempts to extract the system prompt |
+| Data exfiltration | Tries to steal credentials and secrets |
+| Tool misuse | Tests if tools can be invoked outside their scope |
+| Goal hijacking | Attempts to override the agent's objective |
+| XPIA | Cross-prompt instruction attacks via documents |
+| + 6 more | Harmful content, policy violation, reliability, scope adherence, input validation, hallucination |
 
-**3. It probes the live hosted agent** — hitting the real deployed endpoint and recording what routes respond, what behavior shows up, and whether runtime activity matches the listing.
+### Adaptive trust specialists (LLM-powered deep probes)
 
-**4. It plants fake credentials** — fake AWS keys, database passwords, API tokens are seeded into runtime probes. If any of those values appear in responses or observed logs, the agent is trying to steal secrets.
-
-Everything the agent does is compared against what it declared in the manifest. Anything undeclared → blocked.
-
-```mermaid
-flowchart LR
-    A["Agent submitted"] --> B["Read code\n+ manifest"]
-    B --> C["Inspect hosted runtime\n+ probe live agent"]
-    C --> D["Compare declared\nvs. actual behavior"]
-    D --> E{"Match?"}
-    E -->|"Yes"| F["ALLOW"]
-    E -->|"No"| G["BLOCK"]
-
-    style F fill:#3fb950,color:#fff
-    style G fill:#f85149,color:#fff
-```
-
----
-
-## The Verdicts
-
-| Verdict | What happens | When |
-|---|---|---|
-| `ALLOW_CLEAN` | Agent is published automatically | Everything matched its declarations |
-| `ALLOW_WITH_WARNINGS` | Published with notes for the reviewer | Minor issues (e.g. missing dependency lockfile) |
-| `MANUAL_REVIEW` | Sent to a human to decide | Concerning signals (e.g. hidden instructions in prompts) |
-| `BLOCK` | Rejected | Undeclared network connections, stolen credentials, or serious runtime integrity issues detected |
+| Specialist | What it does |
+|---|---|
+| Egress prober | Social-engineers the agent into making undeclared network calls |
+| Canary stresser | Seeds fake credentials and checks if they leak |
+| Tool exerciser | Enumerates and exercises all available tool capabilities |
+| Data boundary | Tests cross-tenant and cross-session data isolation |
+| Behavior consistency | Checks if the agent behaves differently across runs |
+| Memory poisoning | Tests if state can be mutated between sessions |
 
 ---
 
 ## Trust Manifest
 
-Every agent ships with a `trust_manifest.yaml` that declares what it does.
-AgentGate compares this against actual runtime behavior. For the PromptShop demo,
-the manifest can also carry listing metadata that powers reviewer notes and a
-buyer-facing trust card.
+Every agent can ship with a `trust_manifest.yaml` that declares what it does. AgentGate compares this against actual runtime behavior. The manifest is optional — without it, AgentGate infers everything from source and runtime.
 
 ```yaml
 submission_id: my-agent-v1
@@ -171,19 +221,6 @@ agent_name: My Support Agent
 version: "1.0.0"
 entrypoint: server.py
 description: Customer support agent for order lookups
-solution_category: ecommerce_support
-business_use_case: Answers storefront support questions
-
-customer_data_access:
-  - orders
-  - products
-
-integrations:
-  - api.shopify.com
-
-business_claims:
-  - order lookups
-  - return guidance
 
 declared_tools:
   - lookup_order
@@ -191,10 +228,6 @@ declared_tools:
   - check_return_policy
 
 declared_external_domains: []
-# If your agent calls external APIs, declare them:
-# declared_external_domains:
-#   - api.stripe.com
-#   - hooks.slack.com
 
 permissions:
   - read_orders
@@ -203,17 +236,98 @@ permissions:
 
 ---
 
-## CI/CD
+## Cost per scan
+
+| Component | Cost |
+|---|---|
+| Security detectors (heuristic, no LLM) | $0.00 |
+| Adaptive specialists (5 Sonnet calls) | ~$0.10 |
+| Railway compute (~10 min) | ~$0.02 |
+| **Total** | **~$0.12** |
+
+Adaptive specialists can be disabled with `AGENTGATE_ADAPTIVE_TRUST=0` for $0.02/scan (static + live probes only).
+
+---
+
+## Quick Start
+
+### CLI
+
+```bash
+pip install -e ".[server]"
+
+# Scan a live agent
+agentgate trust-scan \
+  --url https://my-agent.example.com \
+  --source-dir ./src \
+  --manifest ./trust_manifest.yaml \
+  --format all
+
+# Red team test
+agentgate scan http://localhost:8000/api --name "My Agent" --format all
+```
+
+### Hosted API
+
+```bash
+# Start API + worker (requires Postgres + Redis)
+DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
+  uvicorn agentgate.server.app:create_app --factory --port 8000
+
+# Create an API key
+agentgate api-key create --name "my-key" --database-url "postgresql://..."
+
+# Submit a scan
+curl -X POST http://localhost:8000/v1/scans \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/owner/agent"}'
+```
+
+### Demo agents
+
+```bash
+# Build and scan all 3 demo agents
+cd demo_agents && ./run_demo.sh
+
+# PromptShop-style trust workflow
+cd demo_agents && ./run_promptshop_demo.sh
+```
+
+---
+
+## Architecture
+
+```
+agentgate/
+  server/          # FastAPI API service (Dockerfile.api)
+    app.py         # Lifespan, error envelope, CORS, rate limiting
+    routes/        # /v1/scans, /v1/health
+    db.py          # Postgres via asyncpg
+    webhook.py     # HMAC-signed delivery with SSRF guard
+  worker/          # arq background worker (Dockerfile.worker)
+    tasks.py       # Scan orchestration
+  services/
+    scan_runner.py # Clone → deploy → probe → verdict pipeline
+  trust/
+    scanner.py     # Trust check orchestration
+    checks/        # 11 trust checks (5 static + 6 runtime)
+    runtime/       # Railway executor, adaptive specialists
+    policy.py      # Verdict policy engine
+  detectors/       # 12 security detectors
+  scanner.py       # Security scan orchestrator
+```
+
+---
+
+## CI/CD Integration
 
 ```bash
 agentgate trust-scan \
   --url $HOSTED_AGENT_URL \
   --source-dir ./src \
   --manifest ./trust_manifest.yaml \
-  --profile both \
-  --report-profile promptshop \
   --fail-on block \
-  --quiet \
   --format sarif
 ```
 
@@ -221,86 +335,37 @@ Exit code 1 if the verdict meets or exceeds `--fail-on`. SARIF output plugs into
 
 ---
 
-## Red Team Testing
-
-Separate from trust scanning. The `scan` command tests how well a *live* agent resists adversarial prompts — prompt injection, data exfiltration, tool misuse, goal hijacking, and more.
-
-```bash
-agentgate scan http://localhost:8000/api --name "My Agent" --format all
-```
-
----
-
 ## Known Limitations
 
-- **Canary detection is string matching.** If an agent encodes stolen credentials before sending them, a simple log scan may miss the value and require deeper review.
+- **Canary detection is string matching.** If an agent encodes stolen credentials before sending them, a simple log scan may miss the value.
 - **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
-- **Hosted context depends on platform visibility.** Railway-backed scans can explain service wiring and deployment health, but platforms only expose the metadata and logs they provide.
+- **Deploy timeout.** Large repos with heavy Docker builds may time out. Use `hosted_url` for pre-deployed agents.
 
 ---
 
 ## Requirements
 
 - **Python 3.11+**
-- **A live hosted agent URL** — required for trust-scan runtime checks
-- **cosign** — optional, image signature verification
-- **Anthropic API key** — optional, enables LLM-generated attacks for red team scans
+- **Postgres + Redis** for the hosted API
+- **cosign** (optional) for image signature verification
+- **Anthropic API key** (optional) for adaptive specialists and LLM-generated attacks
 
 ---
 
-## Quick Start
-
-```bash
-pip install -e .
-```
-
-## PromptShop Workflow Example
-
-```bash
-agentgate trust-scan \
-  --url https://demo-clean-agent.example.com \
-  --source-dir ./demo_agents/clean_support_agent \
-  --manifest ./demo_agents/clean_support_agent/trust_manifest.yaml \
-  --profile both \
-  --report-profile promptshop \
-  --format all \
-  --output ./promptshop_demo_output/clean_support
-```
-
 ## Development
 
-For local contributor workflows, install the development extras and run pytest through the project-local
-module path. This keeps test discovery stable even if your machine has unrelated global pytest plugins
-installed.
-
 ```bash
-pip install -e .[dev]
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -p pytest_asyncio.plugin
-python -m ruff check src tests
+pip install -e ".[dev,server]"
+uv run pytest tests/ -x -q
+uv run ruff check src/
 ```
 
-This project installs the `agentgate` CLI/package. The sibling `agentscorer-pyrit/` project is the
-separate PyRIT-backed implementation and installs `agentscorer`.
+---
 
-From the workspace root you can also run `make test-agentscorer`.
+## Supporting Docs
 
-```bash
-# Run the demo — builds 3 agents, scans all 3
-cd demo_agents && ./run_demo.sh
-```
-
-```bash
-# Run the PromptShop-style trust workflow demo
-cd demo_agents && ./run_promptshop_demo.sh
-```
-
-```bash
-# Scan your own agent
-agentgate trust-scan \
-  --url https://my-agent.example.com \
-  --source-dir ./src \
-  --manifest ./trust_manifest.yaml \
-  --profile both \
-  --report-profile promptshop \
-  --format all
-```
+- [`docs/promptshop_founder_memo.md`](docs/promptshop_founder_memo.md) — founder/CTO positioning
+- [`docs/promptshop_engineering_brief.md`](docs/promptshop_engineering_brief.md) — engineering architecture brief
+- [`docs/trust_benchmarking.md`](docs/trust_benchmarking.md) — benchmark harness and results
+- [`docs/ci_integration.md`](docs/ci_integration.md) — CI/CD integration guide
+- [`docs/owasp_coverage.md`](docs/owasp_coverage.md) — OWASP LLM Top 10 coverage mapping

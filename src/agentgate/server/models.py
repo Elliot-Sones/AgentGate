@@ -126,6 +126,7 @@ class ScanResponse(BaseModel):
     coverage_recommendation: str | None = None
     error: str | None = None
     failure_reason: str | None = None
+    failure_explanation: dict | None = None
     completed_at: str | datetime | None = None
     report_url: str | None = None
     events_url: str | None = None

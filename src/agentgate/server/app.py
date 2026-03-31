@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,6 +13,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from agentgate.server.routes.health import router as health_router
 from agentgate.server.routes.scans import router as scans_router
 from agentgate.server.urls import resolve_public_base_url
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
@@ -120,6 +123,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def catch_all_handler(request, exc):
+        logger.error("Unhandled server exception: %s", exc, exc_info=exc)
         return JSONResponse(
             status_code=500,
             content={"error": "internal_error", "detail": "An unexpected error occurred."},

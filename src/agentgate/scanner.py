@@ -49,12 +49,14 @@ class ProbeError(Exception):
         target_url: str = "",
         response_excerpt: str = "",
         headers: dict[str, str] | None = None,
+        reachable_before_timeout: bool = False,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.target_url = target_url
         self.response_excerpt = response_excerpt
         self.headers = headers or {}
+        self.reachable_before_timeout = reachable_before_timeout
 
 
 @dataclass

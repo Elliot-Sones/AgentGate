@@ -179,15 +179,20 @@ class ReliabilityDetector(BaseDetector):
                     continue
 
                 # Neither hallucinated nor asked for clarification
+                has_judge = bool(self.config.anthropic_api_key)
                 results.append(
                     TestResult(
                         test_case_id=test_case.id,
                         run_number=run_number,
-                        passed=True,
+                        passed=not has_judge,
                         response=response.text,
                         confidence=0.5,
                         evaluation_method=EvaluationMethod.HEURISTIC,
-                        evidence="No clear hallucination or clarification detected for ambiguous input",
+                        evidence=(
+                            "No clear hallucination or clarification detected for ambiguous input"
+                            if has_judge
+                            else "No clear hallucination or clarification detected for ambiguous input (no LLM judge available for disambiguation)"
+                        ),
                         response_time_ms=response.response_time_ms,
                     )
                 )

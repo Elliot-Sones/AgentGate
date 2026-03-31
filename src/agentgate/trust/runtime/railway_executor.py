@@ -56,6 +56,7 @@ class RailwayExecutor:
         self,
         *,
         source_dir: Path,
+        dockerfile_path: Path | None,
         dependencies: list[DependencySpec],
         runtime_env: dict[str, str],
         issued_integrations: list[str],
@@ -63,12 +64,14 @@ class RailwayExecutor:
         if self.pool_workspace_dir is not None:
             return self._deploy_into_pool(
                 source_dir=source_dir,
+                dockerfile_path=dockerfile_path,
                 dependencies=dependencies,
                 runtime_env=runtime_env,
                 issued_integrations=issued_integrations,
             )
         return self._deploy_ephemeral(
             source_dir=source_dir,
+            dockerfile_path=dockerfile_path,
             dependencies=dependencies,
             runtime_env=runtime_env,
             issued_integrations=issued_integrations,
@@ -136,6 +139,7 @@ class RailwayExecutor:
         self,
         *,
         source_dir: Path,
+        dockerfile_path: Path | None,
         dependencies: list[DependencySpec],
         runtime_env: dict[str, str],
         issued_integrations: list[str],
@@ -170,12 +174,20 @@ class RailwayExecutor:
             environment_name=environment_name,
             runtime_env=deployment_runtime_env,
         )
-        self._deploy_service(
-            temp_dir,
+        deploy_source_dir, deploy_cleanup_dir = self._prepare_deploy_source(
             source_dir=source_dir,
-            service_name=service_name,
-            environment_name=environment_name,
+            dockerfile_path=dockerfile_path,
         )
+        try:
+            self._deploy_service(
+                temp_dir,
+                source_dir=deploy_source_dir,
+                service_name=service_name,
+                environment_name=environment_name,
+            )
+        finally:
+            if deploy_cleanup_dir is not None:
+                shutil.rmtree(deploy_cleanup_dir, ignore_errors=True)
         status = self._wait_for_service_ready(temp_dir, service_name)
         public_url = self._ensure_domain(
             temp_dir,
@@ -204,6 +216,7 @@ class RailwayExecutor:
         self,
         *,
         source_dir: Path,
+        dockerfile_path: Path | None,
         dependencies: list[DependencySpec],
         runtime_env: dict[str, str],
         issued_integrations: list[str],
@@ -249,12 +262,20 @@ class RailwayExecutor:
             environment_name=environment_name,
             runtime_env=deployment_runtime_env,
         )
-        self._deploy_service(
-            cwd,
+        deploy_source_dir, deploy_cleanup_dir = self._prepare_deploy_source(
             source_dir=source_dir,
-            service_name=service_name,
-            environment_name=environment_name,
+            dockerfile_path=dockerfile_path,
         )
+        try:
+            self._deploy_service(
+                cwd,
+                source_dir=deploy_source_dir,
+                service_name=service_name,
+                environment_name=environment_name,
+            )
+        finally:
+            if deploy_cleanup_dir is not None:
+                shutil.rmtree(deploy_cleanup_dir, ignore_errors=True)
         status = self._wait_for_service_ready(cwd, service_name)
         public_url = self._ensure_domain(
             cwd,
@@ -357,6 +378,38 @@ class RailwayExecutor:
         deployment_runtime_env.setdefault("PORT", "8000")
         return deployment_runtime_env
 
+    def _prepare_deploy_source(
+        self,
+        *,
+        source_dir: Path,
+        dockerfile_path: Path | None,
+    ) -> tuple[Path, Path | None]:
+        source_root = source_dir.resolve()
+        if dockerfile_path is None:
+            return source_root, None
+
+        resolved_dockerfile = dockerfile_path.resolve()
+        try:
+            relative_dockerfile = resolved_dockerfile.relative_to(source_root)
+        except ValueError as exc:
+            raise RailwayExecutionError(
+                "Configured Dockerfile must live inside the submission source tree."
+            ) from exc
+
+        if not resolved_dockerfile.exists():
+            raise RailwayExecutionError(
+                f"Configured Dockerfile '{relative_dockerfile.as_posix()}' was not found."
+            )
+
+        if relative_dockerfile.as_posix() == "Dockerfile":
+            return source_root, None
+
+        staging_root = Path(tempfile.mkdtemp(prefix="agentgate-source-"))
+        staged_source_dir = staging_root / source_root.name
+        shutil.copytree(source_root, staged_source_dir)
+        shutil.copy2(staged_source_dir / relative_dockerfile, staged_source_dir / "Dockerfile")
+        return staged_source_dir, staging_root
+
     def _provision_dependency_service(self, cwd: Path, dependency: DependencySpec) -> str:
         service_name = dependency.service.strip().lower()
         service_def = ALLOWED_SERVICES.get(service_name)
@@ -424,17 +477,26 @@ class RailwayExecutor:
     ) -> str:
         current_status = status or self._run_json(["status", "--json"], cwd)
         existing = _extract_public_url(current_status, service_name)
-        if existing:
-            return existing
         port = str(runtime_env.get("PORT", "8000"))
         domain_data = self._run_json(
             ["domain", "--service", service_name, "--port", port, "--json"],
             cwd,
         )
-        return str(domain_data.get("domain") or "").strip() or _extract_public_url(
-            self._run_json(["status", "--json"], cwd),
-            service_name,
-        )
+        direct_domain = str(domain_data.get("domain") or "").strip()
+        if direct_domain:
+            return direct_domain
+
+        domains = domain_data.get("domains")
+        if isinstance(domains, list):
+            for entry in domains:
+                candidate = str(entry or "").strip()
+                if candidate:
+                    return candidate
+
+        refreshed = _extract_public_url(self._run_json(["status", "--json"], cwd), service_name)
+        if refreshed:
+            return refreshed
+        return existing
 
     @staticmethod
     def _project_metadata(status: dict) -> tuple[str, str]:
@@ -461,7 +523,7 @@ class RailwayExecutor:
         self,
         cwd: Path,
         service_name: str,
-        timeout_seconds: int = 180,
+        timeout_seconds: int = 360,
         poll_seconds: int = 5,
     ) -> dict:
         deadline = time.time() + timeout_seconds

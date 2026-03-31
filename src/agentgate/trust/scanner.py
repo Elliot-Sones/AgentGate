@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import time
+from pathlib import Path
 
 from agentgate.progress import ScanProgressDisplay
 from agentgate.trust.checks import BaseTrustCheck, default_trust_checks
 from agentgate.trust.config import TrustScanConfig
 from agentgate.trust.context import TrustScanContext
+from agentgate.trust.file_classifier import classify_repo
 from agentgate.trust.integrations.agentdojo_runner import AgentDojoRunner
 from agentgate.trust.metadata import (
     build_runtime_summary,
@@ -30,6 +33,7 @@ from agentgate.trust.models import (
     TrustScorecard,
     TrustSeverity,
 )
+from agentgate.trust.normalizer import tag_legacy_finding
 from agentgate.trust.owasp_mapping import owasp_coverage_summary
 from agentgate.trust.policy import TrustPolicy
 from agentgate.trust.runtime.allowed_services import ALLOWED_SERVICES
@@ -37,8 +41,17 @@ from agentgate.trust.runtime.railway_executor import RailwayExecutionError, Rail
 from agentgate.trust.runtime.submission_profile import (
     build_submission_profile as build_generated_runtime_profile,
 )
+from agentgate.trust.reachability import build_reachability
 
 logger = logging.getLogger(__name__)
+
+_SEVERITY_ORDER = {
+    TrustSeverity.CRITICAL: 0,
+    TrustSeverity.HIGH: 1,
+    TrustSeverity.MEDIUM: 2,
+    TrustSeverity.LOW: 3,
+    TrustSeverity.INFO: 4,
+}
 
 
 class TrustScanner:
@@ -55,6 +68,7 @@ class TrustScanner:
         self.checks = checks or default_trust_checks()
         self.policy = policy or TrustPolicy(version=config.policy_version)
         self._progress = progress
+        self.event_callback = None
 
     async def run(self) -> TrustScanResult:
         start = time.monotonic()
@@ -67,12 +81,13 @@ class TrustScanner:
         checks_failed = 0
         deployment_error = ""
         should_cleanup = False
+        runtime_checks_skipped: list[str] = []
 
         try:
             self._prepare_context(ctx)
             unsupported_finding = self._unsupported_submission_finding(ctx)
             if unsupported_finding is not None:
-                findings.append(unsupported_finding)
+                findings.append(self._tag_legacy_finding(unsupported_finding))
                 return self._build_result(
                     ctx=ctx,
                     start=start,
@@ -83,9 +98,25 @@ class TrustScanner:
                 )
 
             if not self.config.hosted_url and ctx.source_dir is not None:
+                await self._emit_event(
+                    status="deploying",
+                    phase="deployment_started",
+                    detail="Deploying submission to Railway.",
+                    event_type="scan.phase",
+                    payload={
+                        "dependency_count": len(ctx.config.dependencies),
+                        "pool_mode": bool(self.config.railway_pool_workspace_dir),
+                    },
+                )
                 try:
                     deployment = self._build_executor().deploy_submission(
                         source_dir=ctx.source_dir,
+                        dockerfile_path=(
+                            Path(ctx.generated_runtime_profile.dockerfile_path)
+                            if ctx.generated_runtime_profile is not None
+                            and ctx.generated_runtime_profile.dockerfile_path
+                            else ctx.config.dockerfile_path
+                        ),
                         dependencies=ctx.config.dependencies,
                         runtime_env=self._deployment_runtime_env(ctx),
                         issued_integrations=(
@@ -96,36 +127,104 @@ class TrustScanner:
                     )
                 except RailwayExecutionError as exc:
                     deployment_error = str(exc)
+                    await self._emit_event(
+                        status="scanning",
+                        phase="deployment_failed",
+                        detail=(
+                            f"{deployment_error} Continuing with static checks only; runtime checks "
+                            "will be skipped."
+                        ),
+                        event_type="scan.phase",
+                        payload={"component": "railway_deployment", "deployment_error": deployment_error},
+                    )
                     findings.append(
-                        TrustFinding(
-                            check_id="deployment",
-                            title="Submission deployment failed",
-                            category=TrustCategory.RUNTIME_INTEGRITY,
-                            severity=TrustSeverity.CRITICAL,
-                            passed=False,
-                            summary=deployment_error,
-                            recommendation=(
-                                "Fix the Dockerfile, runtime configuration, or Railway deployment "
-                                "requirements before rerunning the trust scan."
-                            ),
+                        self._tag_legacy_finding(
+                            TrustFinding(
+                                check_id="deployment",
+                                title="Submission deployment failed",
+                                category=TrustCategory.RUNTIME_INTEGRITY,
+                                severity=TrustSeverity.CRITICAL,
+                                passed=False,
+                                summary=deployment_error,
+                                recommendation=(
+                                    "Fix the Dockerfile, runtime configuration, or Railway deployment "
+                                    "requirements before rerunning the trust scan."
+                                ),
+                            )
                         )
                     )
-                    return self._build_result(
-                        ctx=ctx,
-                        start=start,
-                        findings=findings,
-                        check_records=check_records,
-                        checks_failed=0,
-                        deployment_error=deployment_error,
+
+                else:
+                    should_cleanup = True
+                    ctx.deployment_result = deployment
+                    self._apply_deployment_result(ctx, deployment)
+                    await self._emit_event(
+                        status="deploying",
+                        phase="deployment_ready",
+                        detail="Railway deployment is ready for hosted runtime checks.",
+                        event_type="scan.phase",
+                        payload={
+                            "public_url": deployment.public_url,
+                            "project_id": deployment.project_id,
+                            "project_name": deployment.project_name,
+                            "environment_name": deployment.environment_name,
+                            "service_name": deployment.service_name,
+                            "reused_pool": deployment.reused_pool,
+                        },
                     )
 
-                should_cleanup = True
-                ctx.deployment_result = deployment
-                self._apply_deployment_result(ctx, deployment)
+            if deployment_error:
+                runtime_checks_skipped = [
+                    check.check_id for check in self.checks if self._is_runtime_check(check)
+                ]
 
+            executable_checks = [
+                check for check in self.checks if not (deployment_error and self._is_runtime_check(check))
+            ]
+            total_checks = len(executable_checks)
+            await self._emit_event(
+                status="scanning",
+                phase="checks_started",
+                detail=f"Running {total_checks} trust checks.",
+                event_type="scan.phase",
+                progress_current=0,
+                progress_total=total_checks,
+                payload={
+                    "check_ids": [check.check_id for check in executable_checks],
+                    "runtime_checks_skipped": list(runtime_checks_skipped),
+                },
+            )
+
+            executed_checks = 0
             for check in self.checks:
+                if deployment_error and self._is_runtime_check(check):
+                    await self._emit_event(
+                        status="scanning",
+                        phase="check_skipped",
+                        detail=(
+                            f"Skipped runtime check '{check.check_id}' because Railway deployment "
+                            "did not succeed."
+                        ),
+                        event_type="scan.check",
+                        progress_current=executed_checks,
+                        progress_total=total_checks,
+                        payload={"check_id": check.check_id, "reason": "deployment_failed"},
+                    )
+                    continue
+
+                executed_checks += 1
+                ctx.prior_findings = list(self.config.prior_findings_seed) + self._summarize_prior_findings(findings)
                 if self._progress is not None:
                     self._progress.mark_running(check.check_id)
+                await self._emit_event(
+                    status="scanning",
+                    phase="check_running",
+                    detail=f"Running trust check '{check.check_id}'.",
+                    event_type="scan.check",
+                    progress_current=executed_checks - 1,
+                    progress_total=total_checks,
+                    payload={"check_id": check.check_id, "check_index": executed_checks},
+                )
                 status = "completed"
                 try:
                     check_findings = await check.run(ctx)
@@ -134,6 +233,19 @@ class TrustScanner:
                     status = "error"
                     if self._progress is not None:
                         self._progress.mark_error(check.check_id, str(exc))
+                    await self._emit_event(
+                        status="scanning",
+                        phase="check_failed",
+                        detail=f"Trust check '{check.check_id}' raised an exception.",
+                        event_type="scan.warning",
+                        progress_current=executed_checks - 1,
+                        progress_total=total_checks,
+                        payload={
+                            "check_id": check.check_id,
+                            "check_index": executed_checks,
+                            "error": str(exc),
+                        },
+                    )
                     check_findings = [
                         TrustFinding(
                             check_id=check.check_id,
@@ -149,7 +261,23 @@ class TrustScanner:
                     if self._progress is not None:
                         self._progress.mark_completed(check.check_id)
 
+                check_findings = self._interpret_findings(check_findings)
                 failed = any(not f.passed for f in check_findings)
+                if status != "error":
+                    await self._emit_event(
+                        status="scanning",
+                        phase="check_completed",
+                        detail=f"Finished trust check '{check.check_id}'.",
+                        event_type="scan.check",
+                        progress_current=executed_checks,
+                        progress_total=total_checks,
+                        payload={
+                            "check_id": check.check_id,
+                            "check_index": executed_checks,
+                            "failed": failed,
+                            "findings_count": len(check_findings),
+                        },
+                    )
                 check_records.append(
                     CheckRecord(
                         check_id=check.check_id,
@@ -164,8 +292,33 @@ class TrustScanner:
                 if failed:
                     checks_failed += 1
 
+            if runtime_checks_skipped:
+                findings.append(
+                    self._tag_legacy_finding(
+                        TrustFinding(
+                            check_id="runtime_checks_skipped",
+                            title="Runtime checks were skipped after deployment failure",
+                            category=TrustCategory.RUNTIME_INTEGRITY,
+                            severity=TrustSeverity.MEDIUM,
+                            passed=False,
+                            summary=(
+                                "Railway deployment did not succeed, so AgentGate continued with static "
+                                "analysis only and skipped runtime checks: "
+                                + ", ".join(runtime_checks_skipped)
+                                + "."
+                            ),
+                            recommendation=(
+                                "Fix the deployment path and rerun the scan to restore hosted runtime "
+                                "coverage."
+                            ),
+                        )
+                    )
+                )
+
             # Optional AgentDojo bridge
-            dojo_findings = AgentDojoRunner().run(self.config.agentdojo_suite)
+            dojo_findings = self._interpret_findings(
+                AgentDojoRunner().run(self.config.agentdojo_suite)
+            )
             findings.extend(dojo_findings)
             if dojo_findings and any(not f.passed for f in dojo_findings):
                 checks_failed += 1
@@ -176,7 +329,7 @@ class TrustScanner:
                 findings=findings,
                 check_records=check_records,
                 checks_failed=checks_failed,
-                deployment_error="",
+                deployment_error=deployment_error,
             )
         finally:
             if (
@@ -185,14 +338,46 @@ class TrustScanner:
                 and not self.config.keep_environment_on_failure
             ):
                 try:
+                    await self._emit_event(
+                        status="scanning",
+                        phase="cleanup_started",
+                        detail="Cleaning up temporary Railway deployment.",
+                        event_type="scan.cleanup",
+                    )
                     self._build_executor().cleanup(ctx.deployment_result)
+                    await self._emit_event(
+                        status="scanning",
+                        phase="cleanup_completed",
+                        detail="Temporary Railway deployment cleaned up.",
+                        event_type="scan.cleanup",
+                    )
                 except Exception:  # pragma: no cover - cleanup best effort
                     logger.exception("Failed to cleanup temporary Railway deployment.")
+                    await self._emit_event(
+                        status="scanning",
+                        phase="cleanup_failed",
+                        detail="Failed to clean up the temporary Railway deployment.",
+                        event_type="scan.warning",
+                    )
 
     def _profiles_used(self) -> list[str]:
         if self.config.profile == "both":
             return ["review", "prodlike"]
         return [self.config.profile]
+
+    @staticmethod
+    def _summarize_prior_findings(findings: list[TrustFinding], cap: int = 20) -> list[str]:
+        failed = [f for f in findings if not f.passed]
+        failed.sort(key=lambda f: _SEVERITY_ORDER.get(f.severity, 99))
+        summaries: list[str] = []
+        for f in failed[:cap]:
+            location = ""
+            if f.location_path:
+                location = f" — {f.location_path}"
+                if f.location_line:
+                    location += f":{f.location_line}"
+            summaries.append(f"[{f.severity.value.upper()}] {f.title}{location}")
+        return summaries
 
     def _prepare_context(self, ctx: TrustScanContext) -> None:
         ctx.load_manifest()
@@ -203,13 +388,21 @@ class TrustScanner:
                 manifest=ctx.manifest,
                 dependencies=ctx.config.dependencies,
                 runtime_env=ctx.config.runtime_env,
+                dockerfile_path=ctx.config.dockerfile_path,
                 enforce_production_contract=(
-                    self.config.strict_production_contract or not self.config.hosted_url
+                    self.config.strict_production_contract
+                    or (not self.config.hosted_url and not self.config.railway_workspace_id)
                 ),
             )
             ctx.submission_support_assessment = assessment
             ctx.generated_runtime_profile = runtime_profile
             self._apply_generated_profile(ctx)
+            ctx.file_classification_map = classify_repo(ctx.source_dir)
+            if runtime_profile.entrypoint:
+                ctx.reachability_graph = build_reachability(
+                    ctx.source_dir,
+                    runtime_profile.entrypoint,
+                )
             return
 
         if self.config.strict_production_contract:
@@ -244,6 +437,8 @@ class TrustScanner:
         profile = ctx.generated_runtime_profile
         if profile is not None:
             runtime_env.update(profile.issued_runtime_env)
+            if "PORT" not in runtime_env and profile.port_candidates:
+                runtime_env["PORT"] = str(profile.port_candidates[0])
         return runtime_env
 
     def _apply_deployment_result(self, ctx: TrustScanContext, deployment) -> None:
@@ -274,6 +469,54 @@ class TrustScanner:
             pool_environment=self.config.railway_pool_environment,
             pool_service_name=self.config.railway_pool_service or "submission-agent",
         )
+
+    @staticmethod
+    def _is_runtime_check(check: BaseTrustCheck) -> bool:
+        check_id = str(getattr(check, "check_id", "") or "").strip().lower()
+        module_name = check.__class__.__module__.rsplit(".", 1)[-1].strip().lower()
+        return check_id.startswith("runtime_") or module_name.startswith("runtime_")
+
+    @staticmethod
+    def _interpret_findings(findings: list[TrustFinding]) -> list[TrustFinding]:
+        interpreted: list[TrustFinding] = []
+        for finding in findings:
+            interpreted.append(TrustScanner._tag_legacy_finding(finding))
+        return interpreted
+
+    @staticmethod
+    def _tag_legacy_finding(finding: TrustFinding) -> TrustFinding:
+        if getattr(finding, "context", None) is not None:
+            return finding
+        return tag_legacy_finding(finding)
+
+    async def _emit_event(
+        self,
+        *,
+        status: str,
+        phase: str,
+        detail: str,
+        event_type: str = "scan.progress",
+        progress_current: int | None = None,
+        progress_total: int | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        if self.event_callback is None:
+            return
+        event = {
+            "status": status,
+            "phase": phase,
+            "detail": detail,
+            "event_type": event_type,
+        }
+        if progress_current is not None:
+            event["progress_current"] = progress_current
+        if progress_total is not None:
+            event["progress_total"] = progress_total
+        if payload:
+            event["payload"] = payload
+        result = self.event_callback(event)
+        if inspect.isawaitable(result):
+            await result
 
     def _unsupported_submission_finding(self, ctx: TrustScanContext) -> TrustFinding | None:
         assessment = ctx.submission_support_assessment
@@ -550,7 +793,7 @@ class TrustScanner:
         elif exercised:
             level = "partial"
         else:
-            level = "none"
+            level = "limited"
 
         if ctx.manifest is None:
             notes.append(
@@ -568,6 +811,7 @@ class TrustScanner:
             exercised_surfaces=sorted(exercised),
             skipped_surfaces=sorted(skipped),
             notes=notes,
+            coverage_recommendation="manual_review" if level == "limited" else None,
         )
 
     @staticmethod
@@ -655,6 +899,6 @@ class TrustScanner:
         return ConfidenceSummary(
             score=score,
             evidence_quality=evidence_quality,
-            inconclusive=(coverage.level == "none" or score < 60),
+            inconclusive=(coverage.level == "limited" or score < 60),
             drivers=drivers,
         )

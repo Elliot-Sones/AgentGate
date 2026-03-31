@@ -97,8 +97,10 @@ class BaseDetector(ABC):
         refined: list[TestResult] = []
 
         for result in results:
+            confidence_threshold = 0.95 if self.config.anthropic_api_key else 0.8
             should_judge = self.config.evaluation_mode == "judge" or (
-                result.evaluation_method == EvaluationMethod.HEURISTIC and result.confidence < 0.8
+                result.evaluation_method == EvaluationMethod.HEURISTIC
+                and result.confidence < confidence_threshold
             )
             if should_judge and result.error is None and self.config.budget.can_call_judge():
                 tc = test_case_lookup.get(result.test_case_id)
@@ -107,22 +109,26 @@ class BaseDetector(ABC):
                     continue
 
                 try:
-                    passed, confidence, evidence = await judge.evaluate(
+                    judge_result = await judge.evaluate(
                         input_payload=result.input_payload,
                         response=result.response,
                         expected_behavior=tc.expected_behavior,
                         attack_vector=tc.attack_vector,
                     )
-                    refined.append(
-                        result.model_copy(
-                            update={
-                                "passed": passed,
-                                "confidence": confidence,
-                                "evidence": evidence,
-                                "evaluation_method": EvaluationMethod.LLM_JUDGE,
-                            }
+                    if judge_result is None:
+                        refined.append(result)
+                    else:
+                        passed, confidence, evidence = judge_result
+                        refined.append(
+                            result.model_copy(
+                                update={
+                                    "passed": passed,
+                                    "confidence": confidence,
+                                    "evidence": evidence,
+                                    "evaluation_method": EvaluationMethod.LLM_JUDGE,
+                                }
+                            )
                         )
-                    )
                 except Exception:
                     logger.warning(
                         "LLM judge failed for %s, keeping heuristic result",
@@ -135,7 +141,36 @@ class BaseDetector(ABC):
 
         return refined
 
-    async def run(self, agent_config: AgentConfig) -> list[TestResult]:
+    def _apply_execution_overrides(
+        self,
+        test_cases: list[TestCase],
+        *,
+        detector_name: str | None,
+    ) -> list[TestCase]:
+        case_limit = None
+        if detector_name is not None:
+            case_limit = self.config.detector_case_limits.get(detector_name)
+        if case_limit is not None:
+            test_cases = test_cases[: max(0, case_limit)]
+
+        runs_override = self.config.test_case_runs_override
+        if runs_override is None:
+            return test_cases
+
+        adjusted: list[TestCase] = []
+        for test_case in test_cases:
+            if test_case.runs == runs_override:
+                adjusted.append(test_case)
+                continue
+            adjusted.append(test_case.model_copy(update={"runs": runs_override}))
+        return adjusted
+
+    async def run(
+        self,
+        agent_config: AgentConfig,
+        *,
+        detector_name: str | None = None,
+    ) -> list[TestResult]:
         """Full detector pipeline: generate -> [convert] -> execute -> evaluate -> judge."""
         test_cases = self.generate(agent_config)
         logger.info("%s generated %d test cases", self.__class__.__name__, len(test_cases))
@@ -165,6 +200,11 @@ class BaseDetector(ABC):
                 len(test_cases),
                 len(converters),
             )
+
+        test_cases = self._apply_execution_overrides(
+            test_cases,
+            detector_name=detector_name,
+        )
 
         executed = await self.execute(test_cases)
 

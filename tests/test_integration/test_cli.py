@@ -270,7 +270,15 @@ class TestCombinedScan:
             reused_pool=True,
         )
 
-        def _deploy_submission(self, *, source_dir, dependencies, runtime_env, issued_integrations):
+        def _deploy_submission(
+            self,
+            *,
+            source_dir,
+            dockerfile_path,
+            dependencies,
+            runtime_env,
+            issued_integrations,
+        ):
             captured["pool_workspace"] = str(self.pool_workspace_dir)
             captured["pool_environment"] = self.pool_environment
             captured["pool_service"] = self.pool_service_name

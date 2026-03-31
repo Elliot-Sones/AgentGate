@@ -61,3 +61,5 @@ class ScanConfig:
     enable_adaptive_attacks: bool = False
     adaptive_max_turns: int = 5
     attack_strategy: str = "pair"  # "pair" | "crescendo" | "tap"
+    detector_case_limits: dict[str, int] = field(default_factory=dict)
+    test_case_runs_override: int | None = None

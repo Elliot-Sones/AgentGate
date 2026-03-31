@@ -58,14 +58,10 @@ class LLMJudge:
         response: str,
         expected_behavior: str,
         attack_vector: AttackVector,
-    ) -> tuple[bool, float, str]:
-        """Return (passed, confidence, evidence)."""
+    ) -> tuple[bool, float, str] | None:
+        """Return (passed, confidence, evidence), or None if budget exhausted / error."""
         if not self._config.budget.can_call_judge():
-            return (
-                True,
-                0.5,
-                "LLM judge budget exhausted; defaulting to pass",
-            )
+            return None
 
         user_message = _USER_TEMPLATE.format(
             attack_vector=attack_vector.value,
@@ -88,7 +84,7 @@ class LLMJudge:
 
         except Exception:
             logger.exception("LLM judge call failed")
-            return True, 0.5, "LLM judge error; defaulting to ambiguous pass"
+            return None
 
     @staticmethod
     def _parse_response(text: str) -> tuple[bool, float, str]:

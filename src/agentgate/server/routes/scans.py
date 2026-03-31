@@ -84,6 +84,15 @@ def _failure_reason_from_row(row: dict) -> str | None:
     return None
 
 
+def _failure_explanation_from_row(row: dict) -> dict | None:
+    report = row.get("report")
+    if isinstance(report, dict):
+        explanation = report.get("failure_explanation")
+        if isinstance(explanation, dict) and explanation.get("title"):
+            return explanation
+    return None
+
+
 def _scan_row_to_response(row: dict, *, base_url: str = "") -> ScanResponse:
     score = None
     if isinstance(row.get("score"), dict):
@@ -115,6 +124,7 @@ def _scan_row_to_response(row: dict, *, base_url: str = "") -> ScanResponse:
         coverage_recommendation=coverage_recommendation,
         error=row.get("error"),
         failure_reason=_failure_reason_from_row(row),
+        failure_explanation=_failure_explanation_from_row(row),
         completed_at=row["completed_at"].isoformat() if row.get("completed_at") and hasattr(row["completed_at"], "isoformat") else row.get("completed_at"),
         report_url=report_url,
         events_url=build_events_url(row["id"], base_url),

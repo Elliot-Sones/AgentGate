@@ -64,7 +64,18 @@ class HTTPAdapter(AgentAdapter):
 
                 try:
                     data = resp.json()
-                    text = str(data.get(self.config.response_field, data.get("response", "")))
+                    # Try the configured field first, then common response field names
+                    text = str(
+                        data.get(self.config.response_field)
+                        or data.get("content")
+                        or data.get("output")
+                        or data.get("response")
+                        or data.get("text")
+                        or data.get("result")
+                        or data.get("message")
+                        or data.get("answer")
+                        or ""
+                    )
                 except Exception:
                     text = resp.text
 

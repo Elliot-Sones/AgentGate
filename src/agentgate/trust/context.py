@@ -22,11 +22,15 @@ class TrustScanContext:
     manifest: dict | None = None
     manifest_error: str = ""
     runtime_traces: dict[str, RuntimeTrace] = field(default_factory=dict)
+    file_classification_map: dict[Path, str] = field(default_factory=dict)
+    reachability_graph: dict[Path, str] = field(default_factory=dict)
+    destination_taxonomy: dict[str, str] = field(default_factory=dict)
     artifacts: list[Path] = field(default_factory=list)
     hosted_runtime_context: dict[str, object] = field(default_factory=dict)
     submission_support_assessment: SubmissionSupportAssessment | None = None
     generated_runtime_profile: GeneratedRuntimeProfile | None = None
     deployment_result: RailwayExecutionResult | None = None
+    prior_findings: list[str] = field(default_factory=list)
     _artifact_dir: Path | None = None
     _source_inference_applied: bool = False
 

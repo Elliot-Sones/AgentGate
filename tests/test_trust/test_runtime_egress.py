@@ -58,6 +58,8 @@ async def test_egress_undeclared_destination_critical(tmp_path: Path) -> None:
     failed = [f for f in findings if not f.passed]
     assert len(failed) >= 1
     assert failed[0].severity == TrustSeverity.CRITICAL
+    assert getattr(failed[0], "context", None) is not None
+    assert failed[0].context.destination_class == "unknown_external"
 
 
 @pytest.mark.asyncio
@@ -134,5 +136,45 @@ async def test_egress_allows_procfs_ip_when_declared_domain_resolves(tmp_path: P
         findings = await RuntimeEgressCheck().run(ctx)
     finally:
         re_mod._resolve_domain_ips = original  # type: ignore[assignment]
+
+    assert all(f.passed for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_egress_verified_internal_destination_is_allowed(tmp_path: Path) -> None:
+    ctx = TrustScanContext(config=_config(tmp_path))
+    ctx.runtime_traces["review"] = _trace(
+        network_destinations=["10.165.167.93"],
+        internal_network_destinations=["10.165.167.93"],
+    )
+
+    findings = await RuntimeEgressCheck().run(ctx)
+
+    assert any(f.passed for f in findings)
+    assert all(f.severity != TrustSeverity.CRITICAL for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_egress_private_destination_without_verification_is_flagged(tmp_path: Path) -> None:
+    ctx = TrustScanContext(config=_config(tmp_path))
+    ctx.runtime_traces["review"] = _trace(network_destinations=["10.0.0.55"])
+
+    findings = await RuntimeEgressCheck().run(ctx)
+
+    failed = [f for f in findings if not f.passed]
+    assert len(failed) == 1
+    assert failed[0].severity == TrustSeverity.MEDIUM
+    assert "Private network destination" in failed[0].title
+    assert getattr(failed[0], "context", None) is not None
+    assert failed[0].context.destination_class == "private_unattributed"
+
+
+@pytest.mark.asyncio
+async def test_egress_telemetry_registry_allows_framework_calls(tmp_path: Path) -> None:
+    ctx = TrustScanContext(config=_config(tmp_path))
+    ctx.hosted_runtime_context = {"telemetry_packages": ["streamlit"]}
+    ctx.runtime_traces["review"] = _trace(network_destinations=["browser.gatherusagestats"])
+
+    findings = await RuntimeEgressCheck().run(ctx)
 
     assert all(f.passed for f in findings)

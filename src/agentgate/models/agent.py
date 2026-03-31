@@ -12,6 +12,7 @@ class AgentConfig(BaseModel):
     auth_header: str | None = None
     agent_type: str = "chat"
     capabilities: list[str] = []
+    attack_hints: list[str] = []
     request_field: str = "question"
     response_field: str = "answer"
     request_defaults: dict[str, object] = Field(default_factory=dict)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -91,6 +92,7 @@ def test_railway_executor_deploy_submission_happy_path(
 
     result = RailwayExecutor().deploy_submission(
         source_dir=source_dir,
+        dockerfile_path=source_dir / "Dockerfile",
         dependencies=[DependencySpec(service="neo4j")],
         runtime_env={"PORT": "8000"},
         issued_integrations=["openai"],
@@ -132,10 +134,159 @@ def test_railway_executor_fails_fast_on_unprovisionable_dependency(
     with pytest.raises(RailwayExecutionError):
         executor.deploy_submission(
             source_dir=source_dir,
+            dockerfile_path=source_dir / "Dockerfile",
             dependencies=[DependencySpec(service="unknown-db")],
             runtime_env={},
             issued_integrations=[],
         )
+
+
+def test_ensure_domain_accepts_domains_array(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_run(
+        cmd, cwd=None, env=None, capture_output=None, text=None, timeout=None, check=None
+    ):
+        action = cmd[1:]
+        if action[:2] == ["status", "--json"]:
+            return _Completed(
+                stdout=json.dumps(
+                    {
+                        "environments": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "serviceInstances": {
+                                            "edges": [
+                                                {
+                                                    "node": {
+                                                        "serviceName": "submission-agent",
+                                                        "latestDeployment": {"status": "SUCCESS"},
+                                                        "domains": {"serviceDomains": []},
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                )
+            )
+        if action[:2] == ["domain", "--service"]:
+            return _Completed(
+                stdout=json.dumps({"domains": ["https://submission-agent-production.up.railway.app"]})
+            )
+        raise AssertionError(f"Unexpected railway command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    executor = RailwayExecutor()
+    public_url = executor._ensure_domain(
+        tmp_path,
+        "submission-agent",
+        runtime_env={"PORT": "8000"},
+    )
+
+    assert public_url == "https://submission-agent-production.up.railway.app"
+
+
+def test_ensure_domain_retargets_existing_domain_to_requested_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def _fake_run(
+        cmd, cwd=None, env=None, capture_output=None, text=None, timeout=None, check=None
+    ):
+        calls.append(list(cmd))
+        action = cmd[1:]
+        if action[:2] == ["status", "--json"]:
+            return _Completed(
+                stdout=json.dumps(
+                    {
+                        "environments": {
+                            "edges": [
+                                {
+                                    "node": {
+                                        "serviceInstances": {
+                                            "edges": [
+                                                {
+                                                    "node": {
+                                                        "serviceName": "submission-agent",
+                                                        "latestDeployment": {"status": "SUCCESS"},
+                                                        "domains": {
+                                                            "serviceDomains": [
+                                                                {
+                                                                    "domain": "submission-agent-production.up.railway.app"
+                                                                }
+                                                            ]
+                                                        },
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                )
+            )
+        if action[:2] == ["domain", "--service"]:
+            return _Completed(
+                stdout=json.dumps({"domains": ["https://submission-agent-production.up.railway.app"]})
+            )
+        raise AssertionError(f"Unexpected railway command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    executor = RailwayExecutor()
+    public_url = executor._ensure_domain(
+        tmp_path,
+        "submission-agent",
+        runtime_env={"PORT": "8080"},
+    )
+
+    assert public_url == "https://submission-agent-production.up.railway.app"
+    assert any(
+        cmd[:7] == [
+            "railway",
+            "domain",
+            "--service",
+            "submission-agent",
+            "--port",
+            "8080",
+            "--json",
+        ]
+        for cmd in calls
+    )
+
+
+def test_prepare_deploy_source_stages_non_root_dockerfile(tmp_path: Path) -> None:
+    source_dir = tmp_path / "submission"
+    source_dir.mkdir()
+    (source_dir / "Dockerfile.api").write_text("FROM python:3.11\nCMD [\"python\", \"app.py\"]\n")
+    (source_dir / "app.py").write_text("print('ok')\n")
+
+    executor = RailwayExecutor()
+    staged_source, cleanup_dir = executor._prepare_deploy_source(
+        source_dir=source_dir,
+        dockerfile_path=source_dir / "Dockerfile.api",
+    )
+
+    try:
+        assert staged_source != source_dir
+        assert (staged_source / "Dockerfile").read_text() == (
+            source_dir / "Dockerfile.api"
+        ).read_text()
+        assert (staged_source / "Dockerfile.api").exists()
+    finally:
+        if cleanup_dir is not None:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
 def test_railway_executor_reuses_pool_services(
@@ -205,6 +356,10 @@ def test_railway_executor_reuses_pool_services(
             return _Completed(stdout=json.dumps({"updated": True}))
         if action[:1] == ["up"]:
             return _Completed(stdout="deploying")
+        if action[:2] == ["domain", "--service"]:
+            return _Completed(
+                stdout=json.dumps({"domains": ["https://submission-agent.up.railway.app"]})
+            )
         raise AssertionError(f"Unexpected railway command: {cmd}")
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
@@ -215,6 +370,7 @@ def test_railway_executor_reuses_pool_services(
         pool_service_name="submission-agent",
     ).deploy_submission(
         source_dir=source_dir,
+        dockerfile_path=source_dir / "Dockerfile",
         dependencies=[DependencySpec(service="neo4j"), DependencySpec(service="pgvector")],
         runtime_env={"PORT": "8000"},
         issued_integrations=["anthropic"],
@@ -231,6 +387,19 @@ def test_railway_executor_reuses_pool_services(
     assert not any(cmd[:2] == ["railway", "init"] for cmd in calls)
     assert not any(
         cmd[:3] == ["railway", "add", "--service"] and "submission-agent" in cmd for cmd in calls
+    )
+    assert any(
+        cmd[:7]
+        == [
+            "railway",
+            "domain",
+            "--service",
+            "submission-agent",
+            "--port",
+            "8000",
+            "--json",
+        ]
+        for cmd in calls
     )
     assert any(cmd[:3] == ["railway", "add", "--service"] and "pgvector" in cmd for cmd in calls)
 
@@ -300,6 +469,7 @@ def test_railway_executor_uses_project_token_for_cli_calls(
 
     RailwayExecutor(project_token="project-token-123").deploy_submission(
         source_dir=source_dir,
+        dockerfile_path=source_dir / "Dockerfile",
         dependencies=[],
         runtime_env={"PORT": "8000"},
         issued_integrations=[],

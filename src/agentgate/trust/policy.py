@@ -9,23 +9,61 @@ from agentgate.trust.models import (
     severity_counts,
     verdict_rank,
 )
+from agentgate.trust.signals import SignalContext, is_strong_evidence
 
 
 @dataclass
 class TrustPolicy:
-    version: str = "trust-policy-v1"
+    version: str = "trust-policy-v2"
 
     def verdict_for_findings(self, findings: list[TrustFinding]) -> TrustVerdict:
-        def has(severity: TrustSeverity) -> bool:
-            return any((not f.passed) and f.severity == severity for f in findings)
+        failed = [finding for finding in findings if not finding.passed]
+        if not failed:
+            return TrustVerdict.ALLOW_CLEAN
 
-        if has(TrustSeverity.CRITICAL):
+        has_block_evidence = False
+        has_manual_review_evidence = False
+        has_warnings = False
+        strong_high_families: set[str] = set()
+
+        for finding in failed:
+            context = finding.context if isinstance(finding.context, SignalContext) else SignalContext()
+            strong = is_strong_evidence(context)
+            family = _check_family(finding.check_id)
+
+            if finding.severity == TrustSeverity.CRITICAL:
+                if finding.legacy_interpretation:
+                    has_manual_review_evidence = True
+                elif strong:
+                    has_block_evidence = True
+                else:
+                    has_manual_review_evidence = True
+            elif finding.severity == TrustSeverity.HIGH:
+                if strong:
+                    has_manual_review_evidence = True
+                    strong_high_families.add(family)
+                else:
+                    has_warnings = True
+            elif finding.severity == TrustSeverity.MEDIUM:
+                has_warnings = True
+
+        if not has_block_evidence:
+            legacy_criticals = [
+                finding
+                for finding in failed
+                if finding.severity == TrustSeverity.CRITICAL and finding.legacy_interpretation
+            ]
+            for legacy in legacy_criticals:
+                legacy_family = _check_family(legacy.check_id)
+                if strong_high_families - {legacy_family}:
+                    has_block_evidence = True
+                    break
+
+        if has_block_evidence:
             return TrustVerdict.BLOCK
-        if has(TrustSeverity.HIGH):
+        if has_manual_review_evidence:
             return TrustVerdict.MANUAL_REVIEW
-        if has(TrustSeverity.MEDIUM):
-            return TrustVerdict.ALLOW_WITH_WARNINGS
-        if has(TrustSeverity.LOW):
+        if has_warnings:
             return TrustVerdict.ALLOW_WITH_WARNINGS
         return TrustVerdict.ALLOW_CLEAN
 
@@ -46,3 +84,11 @@ FAIL_ON_VALUES = {
 
 def _parse_fail_on(value: str) -> TrustVerdict:
     return FAIL_ON_VALUES.get(value, TrustVerdict.BLOCK)
+
+
+def _check_family(check_id: str) -> str:
+    if check_id.startswith("static_"):
+        return f"static_{check_id}"
+    if check_id.startswith("runtime_"):
+        return f"runtime_{check_id}"
+    return check_id

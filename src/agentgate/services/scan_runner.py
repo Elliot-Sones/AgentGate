@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+import ipaddress
 import logging
 import re
 import shutil
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -122,6 +124,7 @@ class ScanRunner:
         clone_dir = self.work_dir / scan_id / "repo"
         clone_dir.parent.mkdir(parents=True, exist_ok=True)
         clone_url, resolved_ref = self._resolve_clone_target(repo_url=repo_url, git_ref=git_ref)
+        self._assert_public_clone_target(clone_url)
         clone_cmd = ["git", "clone", "--depth", "1"]
         if resolved_ref:
             clone_cmd.extend(["--branch", resolved_ref, "--single-branch"])
@@ -150,6 +153,26 @@ class ScanRunner:
         ref = match.group("ref").strip("/")
         clone_url = f"https://github.com/{owner}/{repo}"
         return clone_url, ref or None
+
+    @staticmethod
+    def _assert_public_clone_target(repo_url: str) -> None:
+        parsed = urlparse(repo_url)
+        hostname = parsed.hostname or ""
+        if parsed.scheme not in {"http", "https"} or not hostname:
+            return
+
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            results = socket.getaddrinfo(hostname, port, proto=socket.IPPROTO_TCP)
+        except socket.gaierror as exc:
+            raise RuntimeError(f"git clone target could not be resolved: {hostname}") from exc
+
+        for _, _, _, _, sockaddr in results:
+            addr = ipaddress.ip_address(sockaddr[0])
+            if addr.is_private or addr.is_loopback or addr.is_link_local:
+                raise RuntimeError(
+                    f"git clone target {hostname} resolves to private address {addr}"
+                )
 
     def build_trust_config(
         self,
@@ -451,18 +474,17 @@ class ScanRunner:
             },
         )
 
-        agent_config = self._build_security_agent_config(
-            source_review=source_review,
-            target_url=target_url,
-            request_field=request_field,
-            response_field=response_field,
-            attack_hints=attack_hints,
-        )
-        await self._await_live_attack_readiness(agent_config=agent_config)
-        scan_config = self._build_security_scan_config(source_review=source_review)
-        scanner = Scanner(agent_config=agent_config, scan_config=scan_config)
-
         try:
+            agent_config = self._build_security_agent_config(
+                source_review=source_review,
+                target_url=target_url,
+                request_field=request_field,
+                response_field=response_field,
+                attack_hints=attack_hints,
+            )
+            await self._await_live_attack_readiness(agent_config=agent_config)
+            scan_config = self._build_security_scan_config(source_review=source_review)
+            scanner = Scanner(agent_config=agent_config, scan_config=scan_config)
             result = await asyncio.wait_for(scanner.run(), timeout=720)
         except asyncio.TimeoutError:
             error = "Live attack scan timed out after 12 minutes."
@@ -524,7 +546,7 @@ class ScanRunner:
                 "attack_hints": attack_hints,
             }
             if failure_reason == "boot_timeout":
-                report_payload["reachable_before_timeout"] = getattr(exc, "status_code", None) is not None
+                report_payload["reachable_before_timeout"] = exc.reachable_before_timeout
             return {
                 "phase": "live_attack_scan",
                 "status": "failed",
@@ -693,6 +715,7 @@ class ScanRunner:
             "scan_kind": "unified_hosted",
             "status": terminal_status,
             "failure_reason": failure_reason,
+            "failure_explanation": self._explain_failure(failure_reason),
             "coverage_status": coverage.level,
             "coverage_recommendation": coverage.coverage_recommendation,
             "coverage": coverage.model_dump(mode="json"),
@@ -862,6 +885,118 @@ class ScanRunner:
             return "deployment_unusable"
         return "boot_timeout"
 
+    @staticmethod
+    def _explain_failure(failure_reason: str | None, error: str | None = None) -> dict | None:
+        if not failure_reason:
+            return None
+        explanations: dict[str, dict[str, str]] = {
+            "auth_required": {
+                "title": "Authentication Required",
+                "description": (
+                    "The agent returned 401/403 during live probing. It requires "
+                    "authentication credentials (API key, Bearer token, or login) that "
+                    "AgentGate cannot simulate in its sandbox environment."
+                ),
+                "action": (
+                    "Provide test credentials or a sandbox environment where the agent "
+                    "can be probed without authentication. Alternatively, submit a trust "
+                    "manifest with auth configuration."
+                ),
+            },
+            "endpoint_not_found": {
+                "title": "Endpoint Not Found",
+                "description": (
+                    "The live target endpoint returned 404. AgentGate discovered the "
+                    "agent's API surface but the selected endpoint does not exist or "
+                    "has a different path than expected."
+                ),
+                "action": (
+                    "Verify the agent exposes an HTTP endpoint at the expected path. "
+                    "If the agent uses a non-standard route, provide an OpenAPI spec or "
+                    "trust manifest with the correct entrypoint."
+                ),
+            },
+            "deployment_unusable": {
+                "title": "Deployment Not Responding",
+                "description": (
+                    "The agent was deployed but returned 5xx errors. It booted but is not "
+                    "serving usable responses — likely a missing dependency, configuration "
+                    "error, or runtime crash."
+                ),
+                "action": (
+                    "Check the agent's logs for startup errors. Common causes: missing "
+                    "environment variables, database connection failures, or incompatible "
+                    "dependencies."
+                ),
+            },
+            "boot_timeout": {
+                "title": "Agent Never Started",
+                "description": (
+                    "The agent was deployed but never became reachable over HTTP within the "
+                    "timeout window. It may have crashed on startup, entered an infinite "
+                    "loop, or failed to bind to the expected port."
+                ),
+                "action": (
+                    "Ensure the agent starts an HTTP server on the PORT environment variable "
+                    "(default 8000). Check that the Dockerfile CMD actually launches the "
+                    "server process."
+                ),
+            },
+            "deployment_failed": {
+                "title": "Deployment Failed",
+                "description": (
+                    "The agent could not be built or deployed to the sandbox environment. "
+                    "This usually means the repository is missing a Dockerfile, has build "
+                    "errors, or is not structured as a deployable service."
+                ),
+                "action": (
+                    "Ensure the repository contains a Dockerfile that builds and runs "
+                    "successfully. The agent must be a deployable HTTP service, not a "
+                    "library or CLI tool. Static analysis still ran — review findings for "
+                    "source-level issues."
+                ),
+            },
+            "live_attack_timeout": {
+                "title": "Scan Timed Out",
+                "description": (
+                    "The live security scan exceeded the 12-minute time limit. The agent "
+                    "was responding but the security detectors could not complete within "
+                    "the allowed window."
+                ),
+                "action": (
+                    "This may indicate the agent is very slow to respond. Consider "
+                    "optimizing agent response times."
+                ),
+            },
+            "live_attack_unusable": {
+                "title": "Security Tests Could Not Execute",
+                "description": (
+                    "The agent was reachable and responded to probes, but the security "
+                    "detectors could not execute any meaningful tests. The agent may not "
+                    "be responding with usable content."
+                ),
+                "action": (
+                    "Verify the agent returns meaningful responses (not empty or error "
+                    "pages) when given natural language input. Check that the "
+                    "request/response format matches a standard chat or query API."
+                ),
+            },
+        }
+        explanation = explanations.get(failure_reason)
+        if explanation:
+            return {
+                "reason": failure_reason,
+                "title": explanation["title"],
+                "description": explanation["description"],
+                "action": explanation["action"],
+            }
+        return {
+            "reason": failure_reason,
+            "title": failure_reason.replace("_", " ").title(),
+            "description": error or "The scan could not complete.",
+            "action": "Review the scan events and full report for details.",
+        }
+
     def _build_security_scan_config(self, *, source_review: dict[str, object]) -> ScanConfig:
         detectors, case_limits = self._select_hosted_security_profile(source_review)
         return ScanConfig(
@@ -893,14 +1028,19 @@ class ScanRunner:
         last_error = "Agent never became usable enough for the mandatory live attack scan."
         last_status_code: int | None = None
         last_body: str = ""
+        reachable_before_timeout = False
         try:
             while time.monotonic() < deadline:
                 response = await adapter.send("hello")
                 if not response.error and response.status_code < 400 and response.text.strip():
                     return
+                if response.status_code > 0:
+                    reachable_before_timeout = True
                 if response.error:
                     last_error = f"Agent returned error: {response.error}"
-                    last_status_code = None
+                    last_status_code = response.status_code or None
+                    if response.status_code > 0:
+                        last_body = response.error[:500]
                 elif response.status_code >= 400:
                     last_error = f"Agent returned HTTP {response.status_code}: {response.text[:200]}"
                     last_status_code = response.status_code
@@ -915,6 +1055,7 @@ class ScanRunner:
             status_code=last_status_code,
             target_url=agent_config.url,
             response_excerpt=last_body,
+            reachable_before_timeout=reachable_before_timeout,
         )
 
     async def _await_live_surface_ready(
@@ -1095,6 +1236,47 @@ class ScanRunner:
         if not isinstance(raw_paths, dict):
             return None
 
+        schemas = {}
+        components = spec.get("components")
+        if isinstance(components, dict):
+            raw_schemas = components.get("schemas")
+            if isinstance(raw_schemas, dict):
+                schemas = raw_schemas
+
+        def _resolve_request_field(operation: dict) -> str | None:
+            """Extract the first string field name from the request body schema."""
+            body = operation.get("requestBody")
+            if not isinstance(body, dict):
+                return None
+            content = body.get("content")
+            if not isinstance(content, dict):
+                return None
+            for media_type, media_obj in content.items():
+                if not isinstance(media_obj, dict):
+                    continue
+                schema = media_obj.get("schema")
+                if not isinstance(schema, dict):
+                    continue
+                ref = schema.get("$ref")
+                if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+                    schema_name = ref.rsplit("/", 1)[-1]
+                    schema = schemas.get(schema_name, schema)
+                props = schema.get("properties")
+                if isinstance(props, dict):
+                    for field_name, field_spec in props.items():
+                        if isinstance(field_spec, dict) and field_spec.get("type") in ("string", None):
+                            return str(field_name)
+            return None
+
+        _DEFAULT_REQUEST_FIELDS: dict[str, str] = {
+            "/invoke": "message",
+            "/chat": "message",
+            "/query": "query",
+            "/search": "query",
+            "/run": "message",
+            "/predict": "message",
+        }
+
         best: tuple[int, str, str] | None = None
         for path, operations in raw_paths.items():
             if not isinstance(path, str) or not path.startswith("/") or not isinstance(operations, dict):
@@ -1116,21 +1298,31 @@ class ScanRunner:
                 continue
 
             score = 0
-            request_field = "question"
             if "/invoke" in lowered:
                 score = 500
-                request_field = "message"
             elif "/chat" in lowered:
                 score = 450
-                request_field = "message"
             elif "/query" in lowered or "/search" in lowered:
                 score = 400
-                request_field = "query"
             elif "/run" in lowered or "/predict" in lowered:
                 score = 350
-                request_field = "message"
             else:
                 continue
+
+            # Try to read the real field name from the OpenAPI schema
+            request_field: str | None = None
+            post_op = operations.get("post") if isinstance(operations.get("post"), dict) else None
+            if post_op is not None:
+                request_field = _resolve_request_field(post_op)
+
+            # Fall back to heuristic defaults if schema doesn't have the field
+            if not request_field:
+                for token, default_field in _DEFAULT_REQUEST_FIELDS.items():
+                    if token in lowered:
+                        request_field = default_field
+                        break
+            if not request_field:
+                request_field = "question"
 
             if "post" in method_names:
                 score += 50

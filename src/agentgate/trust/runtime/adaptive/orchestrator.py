@@ -6,12 +6,16 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import anthropic
+import httpx
 
 from agentgate.trust.runtime.adaptive.context_builder import ContextBuilder
 from agentgate.trust.runtime.adaptive.models import (
     ContextBundle,
     DispatchPlan,
     Phase,
+    ProbeRequest,
+    ProbeResult,
+    SpecialistDispatchResult,
     SpecialistReport,
 )
 from agentgate.trust.runtime.adaptive.specialists import SPECIALIST_REGISTRY
@@ -62,6 +66,7 @@ class AdaptiveProbeOrchestrator:
         bundle: ContextBundle,
         log_fetcher: Callable[[], str] | None = None,
     ) -> tuple[list[dict], list[SpecialistReport]]:
+        health_gate = self._evaluate_health_gate(bundle)
         client = self._get_client()
         try:
             profile_prompt = self._build_profile_prompt(bundle)
@@ -78,9 +83,37 @@ class AdaptiveProbeOrchestrator:
             plan = _DEFAULT_PLAN
 
         all_reports: list[SpecialistReport] = []
+        accumulated_findings: list[dict] = []
         for phase in plan.phases:
-            phase_reports = self._execute_phase(phase, bundle, log_fetcher=log_fetcher)
+            phase_bundle = ContextBundle(
+                source_files=bundle.source_files,
+                manifest=bundle.manifest,
+                static_findings=bundle.static_findings,
+                live_url=bundle.live_url,
+                canary_tokens=bundle.canary_tokens,
+                declared_tools=bundle.declared_tools,
+                declared_domains=bundle.declared_domains,
+                customer_data_access=bundle.customer_data_access,
+                permissions=bundle.permissions,
+                openapi_spec=bundle.openapi_spec,
+                prior_specialist_findings=list(accumulated_findings),
+            )
+            phase_reports = self._execute_phase(
+                phase,
+                phase_bundle,
+                health_gate_passed=health_gate["passed"],
+                health_gate_detail=health_gate["detail"],
+                prior_reports=list(all_reports),
+                log_fetcher=log_fetcher,
+            )
             all_reports.extend(phase_reports)
+            for report in phase_reports:
+                if report.has_findings and (report.dispatch is None or report.dispatch.status == "executed"):
+                    accumulated_findings.append({
+                        "specialist": report.specialist,
+                        "findings": list(report.findings),
+                        "severity": report.severity,
+                    })
 
         probe_responses = self._collect_probe_responses(all_reports)
         return probe_responses, all_reports
@@ -190,19 +223,78 @@ class AdaptiveProbeOrchestrator:
         self,
         phase: Phase,
         bundle: ContextBundle,
+        *,
+        health_gate_passed: bool,
+        health_gate_detail: str,
+        prior_reports: list[SpecialistReport] | None = None,
         log_fetcher: Callable[[], str] | None = None,
     ) -> list[SpecialistReport]:
-        if phase.parallel:
-            return self._execute_parallel(phase.agents, bundle, log_fetcher=log_fetcher)
-        return self._execute_sequential(phase.agents, bundle, log_fetcher=log_fetcher)
+        prior_reports = prior_reports or []
+        dispatches = [
+            self._build_dispatch_decision(
+                name,
+                bundle,
+                health_gate_passed=health_gate_passed,
+                health_gate_detail=health_gate_detail,
+                prior_reports=prior_reports,
+            )
+            for name in phase.agents
+        ]
+
+        runnable = [item for item in dispatches if item["skip_reason"] == ""]
+        runnable_reports: dict[str, SpecialistReport] = {}
+        if runnable:
+            if phase.parallel:
+                runnable_reports = self._execute_parallel(
+                    [item["name"] for item in runnable],
+                    bundle,
+                    log_fetcher=log_fetcher,
+                )
+            else:
+                runnable_reports = self._execute_sequential(
+                    [item["name"] for item in runnable],
+                    bundle,
+                    log_fetcher=log_fetcher,
+                )
+
+        reports: list[SpecialistReport] = []
+        for item in dispatches:
+            if item["skip_reason"]:
+                reports.append(
+                    self._build_skipped_report(
+                        specialist=item["name"],
+                        skip_reason=item["skip_reason"],
+                        precondition=item["precondition"],
+                    )
+                )
+                continue
+            report = runnable_reports.get(item["name"])
+            if report is None:
+                reports.append(
+                    self._build_skipped_report(
+                        specialist=item["name"],
+                        skip_reason="Specialist execution did not produce a report.",
+                        precondition=item["precondition"],
+                    )
+                )
+                continue
+            report.dispatch = SpecialistDispatchResult(
+                specialist=item["name"],
+                status="executed",
+                precondition=item["precondition"],
+            )
+            reports.append(report)
+        return reports
 
     def _execute_parallel(
         self,
         agent_names: list[str],
         bundle: ContextBundle,
         log_fetcher: Callable[[], str] | None = None,
-    ) -> list[SpecialistReport]:
-        reports: list[SpecialistReport] = []
+    ) -> dict[str, SpecialistReport]:
+        reports: dict[str, SpecialistReport] = {}
+        if not agent_names:
+            return reports
         with ThreadPoolExecutor(max_workers=len(agent_names)) as executor:
             futures = {
                 executor.submit(self._run_specialist, name, bundle, log_fetcher=log_fetcher): name
@@ -211,17 +303,21 @@ class AdaptiveProbeOrchestrator:
             for future in as_completed(futures):
                 name = futures[future]
                 try:
-                    reports.append(future.result())
+                    reports[name] = future.result()
                 except Exception as exc:
                     logger.warning("Specialist %s failed: %s", name, exc)
-                    reports.append(
-                        SpecialistReport(
+                    reports[name] = SpecialistReport(
+                        specialist=name,
+                        probes_sent=0,
+                        probes_succeeded=0,
+                        findings=[f"Specialist failed: {exc}"],
+                        severity="info",
+                        dispatch=SpecialistDispatchResult(
                             specialist=name,
-                            probes_sent=0,
-                            probes_succeeded=0,
-                            findings=[f"Specialist failed: {exc}"],
-                            severity="info",
-                        )
+                            status="failed",
+                            skip_reason="",
+                            precondition="health_gate_passed",
+                        ),
                     )
         return reports
 
@@ -230,21 +326,25 @@ class AdaptiveProbeOrchestrator:
         agent_names: list[str],
         bundle: ContextBundle,
         log_fetcher: Callable[[], str] | None = None,
-    ) -> list[SpecialistReport]:
-        reports: list[SpecialistReport] = []
+    ) -> dict[str, SpecialistReport]:
+        reports: dict[str, SpecialistReport] = {}
         for name in agent_names:
             try:
-                reports.append(self._run_specialist(name, bundle, log_fetcher=log_fetcher))
+                reports[name] = self._run_specialist(name, bundle, log_fetcher=log_fetcher)
             except Exception as exc:
                 logger.warning("Specialist %s failed: %s", name, exc)
-                reports.append(
-                    SpecialistReport(
+                reports[name] = SpecialistReport(
+                    specialist=name,
+                    probes_sent=0,
+                    probes_succeeded=0,
+                    findings=[f"Specialist failed: {exc}"],
+                    severity="info",
+                    dispatch=SpecialistDispatchResult(
                         specialist=name,
-                        probes_sent=0,
-                        probes_succeeded=0,
-                        findings=[f"Specialist failed: {exc}"],
-                        severity="info",
-                    )
+                        status="failed",
+                        skip_reason="",
+                        precondition="health_gate_passed",
+                    ),
                 )
         return reports
 
@@ -260,20 +360,8 @@ class AdaptiveProbeOrchestrator:
 
         specialist = specialist_cls()
 
-        # Slice the context for this specialist
-        sliced_files = ContextBuilder.slice_for_specialist(bundle.source_files, name)
-        sliced_bundle = ContextBundle(
-            source_files=sliced_files,
-            manifest=bundle.manifest,
-            static_findings=bundle.static_findings,
-            live_url=bundle.live_url,
-            canary_tokens=bundle.canary_tokens,
-            declared_tools=bundle.declared_tools,
-            declared_domains=bundle.declared_domains,
-            customer_data_access=bundle.customer_data_access,
-            permissions=bundle.permissions,
-            openapi_spec=bundle.openapi_spec,
-        )
+        # Slice the context for this specialist.
+        sliced_bundle = ContextBuilder.build_specialist_bundle(bundle, name)
 
         client = self._get_client()
 
@@ -348,3 +436,189 @@ class AdaptiveProbeOrchestrator:
                     }
                 )
         return responses
+
+    def _evaluate_health_gate(self, bundle: ContextBundle) -> dict[str, object]:
+        probes = ContextBuilder.discover_health_probe_requests(bundle)
+        if not bundle.live_url.strip():
+            return {
+                "passed": False,
+                "detail": "No live URL was provided for health probing.",
+                "probe_results": [],
+            }
+
+        probe_results = self._execute_health_probes(bundle.live_url, probes)
+        passed = any(self._is_application_response(result) for result in probe_results)
+        if passed:
+            return {
+                "passed": True,
+                "detail": "At least one probe reached the application process.",
+                "probe_results": probe_results,
+            }
+        return {
+            "passed": False,
+            "detail": "All health probes returned transport/proxy failures.",
+            "probe_results": probe_results,
+        }
+
+    def _execute_health_probes(
+        self,
+        base_url: str,
+        probes: list[ProbeRequest],
+        timeout: int = 10,
+    ) -> list[ProbeResult]:
+        results: list[ProbeResult] = []
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            for probe in probes:
+                url = f"{base_url.rstrip('/')}{probe.path}"
+                try:
+                    response = client.request(
+                        probe.method,
+                        url,
+                        json=probe.body,
+                        headers=probe.headers or {},
+                    )
+                    results.append(
+                        ProbeResult(
+                            specialist=probe.specialist,
+                            method=probe.method,
+                            path=probe.path,
+                            request_body=probe.body,
+                            status_code=response.status_code,
+                            response_body=response.text[:2048],
+                            content_type=response.headers.get("content-type", ""),
+                        )
+                    )
+                except Exception as exc:
+                    results.append(
+                        ProbeResult(
+                            specialist=probe.specialist,
+                            method=probe.method,
+                            path=probe.path,
+                            request_body=probe.body,
+                            status_code=0,
+                            response_body="",
+                            content_type="",
+                            error=str(exc),
+                        )
+                    )
+        return results
+
+    @staticmethod
+    def _is_application_response(result: ProbeResult) -> bool:
+        if result.status_code <= 0 or result.error:
+            return False
+        body = result.response_body.lower()
+        if result.status_code in {502, 503} and _looks_like_proxy_error(body):
+            return False
+        if _looks_like_proxy_error(body):
+            return False
+        return True
+
+    def _build_dispatch_decision(
+        self,
+        specialist_name: str,
+        bundle: ContextBundle,
+        *,
+        health_gate_passed: bool,
+        health_gate_detail: str,
+        prior_reports: list[SpecialistReport],
+    ) -> dict[str, str]:
+        precondition = "health_gate_passed"
+        if not health_gate_passed:
+            return {
+                "name": specialist_name,
+                "precondition": precondition,
+                "skip_reason": f"Agent unresponsive; {self._skip_reason_for_specialist(specialist_name)}",
+            }
+
+        if specialist_name == "data_boundary":
+            precondition = "health_gate_passed_and_customer_data_access"
+            if not bundle.customer_data_access:
+                return {
+                    "name": specialist_name,
+                    "precondition": precondition,
+                    "skip_reason": "No customer data access declared or agent unresponsive",
+                }
+        elif specialist_name == "behavior_consistency":
+            precondition = "health_gate_passed_with_2_distinct_responses"
+            if self._count_distinct_successful_responses(prior_reports) < 2:
+                return {
+                    "name": specialist_name,
+                    "precondition": precondition,
+                    "skip_reason": "Insufficient response diversity for consistency comparison",
+                }
+        elif specialist_name == "memory_poisoning":
+            precondition = "health_gate_passed_and_memory_surface"
+            if not ContextBuilder.has_memory_surface(bundle.source_files, bundle.manifest):
+                return {
+                    "name": specialist_name,
+                    "precondition": precondition,
+                    "skip_reason": "No memory system detected or agent unresponsive",
+                }
+
+        return {
+            "name": specialist_name,
+            "precondition": precondition if precondition else health_gate_detail,
+            "skip_reason": "",
+        }
+
+    @staticmethod
+    def _skip_reason_for_specialist(specialist_name: str) -> str:
+        reasons = {
+            "tool_exerciser": "tool exercise requires working responses",
+            "egress_prober": "active egress probing requires working responses",
+            "canary_stresser": "canary testing requires working responses",
+            "data_boundary": "boundary testing requires working responses",
+            "behavior_consistency": "consistency comparison requires working responses",
+            "memory_poisoning": "memory poisoning requires working responses",
+        }
+        return reasons.get(specialist_name, "specialist requires working responses")
+
+    @staticmethod
+    def _count_distinct_successful_responses(reports: list[SpecialistReport]) -> int:
+        responses: set[str] = set()
+        for report in reports:
+            for result in report.probe_results:
+                if not result.succeeded:
+                    continue
+                body = result.response_body.strip()
+                if body:
+                    responses.add(body)
+        return len(responses)
+
+    @staticmethod
+    def _build_skipped_report(
+        *,
+        specialist: str,
+        skip_reason: str,
+        precondition: str,
+    ) -> SpecialistReport:
+        return SpecialistReport(
+            specialist=specialist,
+            probes_sent=0,
+            probes_succeeded=0,
+            findings=[],
+            evidence=[],
+            severity="info",
+            dispatch=SpecialistDispatchResult(
+                specialist=specialist,
+                status="skipped",
+                skip_reason=skip_reason,
+                precondition=precondition,
+            ),
+        )
+
+
+def _looks_like_proxy_error(body: str) -> bool:
+    text = body.lower()
+    return any(
+        marker in text
+        for marker in (
+            "application failed to respond",
+            "railway",
+            "upstream request timeout",
+            "gateway timeout",
+            "service unavailable",
+            "proxy error",
+        )
+    )

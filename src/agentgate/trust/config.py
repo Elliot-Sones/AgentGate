@@ -17,6 +17,7 @@ class TrustScanConfig:
     image_ref: str
     manifest_path: Path | None
     output_dir: Path
+    dockerfile_path: Path | None = None
     profile: str = "both"  # review | prodlike | both
     report_profile: str = "standard"  # standard | promptshop
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
@@ -58,6 +59,7 @@ class TrustScanConfig:
     runtime_env: dict[str, str] = field(default_factory=dict)
     dependency_validation_errors: list[str] = field(default_factory=list)
     dependency_inference_notes: list[str] = field(default_factory=list)
+    prior_findings_seed: list[str] = field(default_factory=list)
 
     def load_allowlist(self) -> None:
         if not self.egress_allowlist_path:

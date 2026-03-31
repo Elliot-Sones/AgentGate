@@ -40,6 +40,17 @@ class BaseSpecialist(ABC):
     ) -> str:
         pass
 
+    def _format_prior_findings(self, context: ContextBundle) -> str:
+        if not context.prior_specialist_findings:
+            return ""
+        lines = ["Previous specialist findings:"]
+        for entry in context.prior_specialist_findings:
+            specialist = entry.get("specialist", "unknown")
+            severity = entry.get("severity", "info")
+            for finding in entry.get("findings", []):
+                lines.append(f"  - [{severity.upper()}] ({specialist}) {finding}")
+        return "\n".join(lines) + "\n\n"
+
     def _format_logs_section(self, railway_logs: str) -> str:
         if not railway_logs.strip():
             return ""
