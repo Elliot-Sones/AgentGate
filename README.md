@@ -449,7 +449,7 @@ agentgate trust-scan --url $URL --fail-on block --format sarif
 
 ## Known Limitations
 
-- **Canary detection is string matching.** If an agent encodes stolen credentials before sending them, a simple log scan may miss the value.
+- **Canary detection is deterministic but bounded.** AgentGate now decodes common reversible obfuscations such as base64, hex, URL encoding, char-splitting, and selected Unicode confusables before matching canary values. Custom or more complex obfuscation may still require manual review or adaptive specialist analysis.
 - **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
 - **Deploy timeout.** Large repos with heavy Docker builds may time out during sandbox deployment. A future release will add support for scanning pre-deployed agents via a hosted URL parameter.
 - **Python agents only.** The current runtime supports Python HTTP agents. Other runtimes (Node.js, Go) are architecturally supported but not yet implemented.

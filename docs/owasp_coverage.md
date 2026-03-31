@@ -64,7 +64,7 @@ no coverage.
 | `static_code_signals` | Detects dynamic exec/eval, `shell=True`, outbound HTTP calls in Python source |
 | `static_prompt_tool_inspection` | Scans source for hidden instruction tokens, override phrases, and exfil directives |
 | `runtime_egress` | Compares observed network destinations against declared domains; flags undeclared egress |
-| `runtime_canary` | Checks runtime logs and traffic for seeded canary token values |
+| `runtime_canary` | Checks runtime logs and probe responses for seeded canary token values, including common reversible encodings |
 | `runtime_tool_audit` | Compares observed runtime tool calls against manifest declarations |
 | `runtime_behavior_diff` | Detects network and tool-call differences between review and production-like profiles |
 | `runtime_hosted` | Drives the hosted runtime runner and surfaces adaptive specialist findings |
