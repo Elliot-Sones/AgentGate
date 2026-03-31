@@ -326,32 +326,28 @@ Disable adaptive specialists with `AGENTGATE_ADAPTIVE_TRUST=0` for ~$0.02/scan (
 
 ## Quick Start
 
-### 1. Get an API key
-
-AgentGate is hosted — no setup required. Request an API key to get started.
-
-### 2. Submit a scan
+### 1. Submit a scan
 
 ```bash
 curl -X POST https://agentgate-production-feed.up.railway.app/v1/scans \
-  -H "X-API-Key: <your-api-key>" \
+  -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
   -H "Content-Type: application/json" \
   -d '{"repo_url": "https://github.com/owner/agent"}'
 ```
 
 That's it. One call. AgentGate clones the repo, analyzes the source, deploys the agent to a sandbox, runs 12 security detectors against it, and returns a verdict.
 
-### 3. Watch it in real-time
+### 2. Watch it in real-time
 
 ```bash
-curl -H "X-API-Key: <your-api-key>" \
+curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
   "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/events?stream=true"
 ```
 
-### 4. Get the report
+### 3. Get the report
 
 ```bash
-curl -H "X-API-Key: <your-api-key>" \
+curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
   "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/report"
 ```
 
