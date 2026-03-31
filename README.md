@@ -39,40 +39,87 @@ AgentGate uses **staged confidence** to verify AI agents before they're listed o
 
 ```mermaid
 flowchart TD
-    subgraph intake["1. Intake"]
-        A["POST /v1/scans"] --> B["Validate + Queue"]
-        B --> C["Clone Repo"]
-        C --> D["Load Manifest\n(optional)"]
+    subgraph intake["Stage 1 — Intake"]
+        A["Marketplace calls\nPOST /v1/scans"] --> B["Validate repo_url\n+ SSRF check"]
+        B --> C["Rate limit check\n(10/min per API key)"]
+        C --> D["Enqueue scan job\nvia Redis/arq"]
+        D --> E["Clone repo\nfrom GitHub"]
+        E --> F{"Manifest\npresent?"}
+        F -->|Yes| G["Load trust_manifest.yaml\nas hint source"]
+        F -->|No| H["Continue without manifest\n(infer everything from source)"]
     end
 
-    subgraph static["2. Static Analysis"]
-        E["Code Signals\n(regex scan)"]
-        F["Prompt/Tool\nInspection"]
-        G["Dependency\nRisk Check"]
-        H["Auth Detection\n+ Env Inference"]
+    subgraph static["Stage 2 — Static Analysis"]
+        direction LR
+        I["Scan .py files for\nexec, subprocess,\nimportlib, socket,\nbase64, requests"]
+        J["Scan prompts for\nhidden instructions,\noverride phrases,\nexfil directives"]
+        K["Check dependencies\nfor typosquats,\nmissing lockfiles,\nknown malicious pkgs"]
+        L["Detect auth patterns:\nDepends(), @login_required,\nAuthorization header,\njwt.decode, HTTPBearer"]
+        M["Infer env vars,\nframework, ports,\nprobe paths,\nintegrations"]
     end
 
-    subgraph deploy["3. Deploy + Probe"]
-        I["Deploy to\nRailway"] --> J["OpenAPI\nDiscovery"]
-        J --> K["Live Attack\n(12 detectors)"]
-        K --> L["Adaptive Specialists\n(egress, canary, etc)"]
+    subgraph deploy["Stage 3 — Deploy to Sandbox"]
+        N["Fill missing env vars\nwith sandbox values"] --> O["Inject platform credentials\n(Slack, Shopify, OpenAI, Anthropic)"]
+        O --> P["Build Docker image\non Railway"]
+        P --> Q["Wait for service\nto become healthy"]
+        Q --> R{"HTTP\nreachable?"}
+        R -->|"401/403"| S["auth_required"]
+        R -->|"No response"| T["boot_timeout"]
+        R -->|"5xx"| U["deployment_unusable"]
+        R -->|"200 OK"| V["Proceed to probing"]
     end
 
-    subgraph verdict["4. Verdict"]
-        M["ALLOW CLEAN"]
-        N["ALLOW WITH WARNINGS"]
-        O["MANUAL REVIEW"]
-        P["BLOCK"]
+    subgraph probe["Stage 4 — Live Probing"]
+        V --> W["Fetch /openapi.json\nDiscover POST endpoints\nResolve request field name"]
+        W --> X["Run 12 security detectors\n(heuristic, no LLM cost)"]
+
+        subgraph detectors["Security Detectors"]
+            direction LR
+            D1["Prompt\nInjection"]
+            D2["System Prompt\nLeak"]
+            D3["Data\nExfiltration"]
+            D4["Tool\nMisuse"]
+            D5["Goal\nHijacking"]
+            D6["XPIA"]
+        end
+
+        X --> Y{"Adaptive\nenabled?"}
+        Y -->|Yes| Z["Run adaptive trust specialists"]
+
+        subgraph specialists["Adaptive Specialists (LLM-powered)"]
+            direction LR
+            SP1["Egress Prober\nTrigger undeclared\nnetwork calls"]
+            SP2["Canary Stresser\nSeed fake creds,\ncheck for leaks"]
+            SP3["Tool Exerciser\nEnumerate all\ntool capabilities"]
+            SP4["Data Boundary\nTest cross-tenant\nisolation"]
+            SP5["Behavior\nConsistency\nCompare across runs"]
+            SP6["Memory\nPoisoning\nMutate state\nbetween sessions"]
+        end
+
+        Y -->|No| AA["Skip specialists\n($0.00 LLM cost)"]
+    end
+
+    subgraph verdict["Stage 5 — Verdict"]
+        AB["Merge all findings\n(static + live + adaptive)"]
+        AB --> AC["Apply trust policy\n(severity weights + evidence strength)"]
+        AC --> AD["ALLOW CLEAN\nNo issues found"]
+        AC --> AE["ALLOW WITH WARNINGS\nMinor issues"]
+        AC --> AF["MANUAL REVIEW\nConcerning signals"]
+        AC --> AG["BLOCK\nCritical: stolen creds,\nundeclared egress,\nhidden behavior"]
     end
 
     intake --> static
     static --> deploy
-    deploy --> verdict
+    deploy --> probe
+    probe --> verdict
 
-    style M fill:#b2f2bb,stroke:#22c55e,stroke-width:3px
-    style N fill:#fff3bf,stroke:#f59e0b,stroke-width:3px
-    style O fill:#d0bfff,stroke:#8b5cf6,stroke-width:3px
-    style P fill:#ffc9c9,stroke:#ef4444,stroke-width:3px
+    style AD fill:#b2f2bb,stroke:#22c55e,stroke-width:3px
+    style AE fill:#fff3bf,stroke:#f59e0b,stroke-width:3px
+    style AF fill:#d0bfff,stroke:#8b5cf6,stroke-width:3px
+    style AG fill:#ffc9c9,stroke:#ef4444,stroke-width:3px
+    style S fill:#ffc9c9,stroke:#ef4444,stroke-width:2px
+    style T fill:#ffc9c9,stroke:#ef4444,stroke-width:2px
+    style U fill:#ffc9c9,stroke:#ef4444,stroke-width:2px
 ```
 
 > [View the interactive architecture diagram on Excalidraw](https://excalidraw.com/#json=Gm2uoDh9W1f_1CgCF7nSf,OJThIK4ff4P80NnhqJzyZA)
