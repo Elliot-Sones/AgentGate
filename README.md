@@ -326,9 +326,51 @@ Disable adaptive specialists with `AGENTGATE_ADAPTIVE_TRUST=0` for ~$0.02/scan (
 
 ## Quick Start
 
-### 1. Deploy the API
+### 1. Get an API key
 
-AgentGate runs as two services: a FastAPI API and an arq background worker. Both need Postgres and Redis.
+AgentGate is hosted — no setup required. Request an API key to get started.
+
+### 2. Submit a scan
+
+```bash
+curl -X POST https://agentgate-production-feed.up.railway.app/v1/scans \
+  -H "X-API-Key: <your-api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/owner/agent"}'
+```
+
+That's it. One call. AgentGate clones the repo, analyzes the source, deploys the agent to a sandbox, runs 12 security detectors against it, and returns a verdict.
+
+### 3. Watch it in real-time
+
+```bash
+curl -H "X-API-Key: <your-api-key>" \
+  "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/events?stream=true"
+```
+
+### 4. Get the report
+
+```bash
+curl -H "X-API-Key: <your-api-key>" \
+  "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/report"
+```
+
+### Dashboard
+
+Open `dashboard.html` in a browser for a visual scan experience with real-time progress, verdict display, and findings breakdown.
+
+### Self-hosting
+
+To run your own instance, see [Self-Hosting Guide](#self-hosting).
+
+---
+
+## Self-Hosting
+
+<details>
+<summary>Deploy your own AgentGate instance</summary>
+
+AgentGate runs as two services (API + worker) backed by Postgres and Redis.
 
 ```bash
 pip install -e ".[server]"
@@ -337,43 +379,32 @@ pip install -e ".[server]"
 DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
   uvicorn agentgate.server.app:create_app --factory --port 8000
 
-# Start the worker (in a separate terminal)
+# Start the worker (separate terminal)
 DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
   arq agentgate.worker.settings.WorkerSettings
-```
 
-### 2. Create an API key
-
-```bash
+# Create an API key
 agentgate api-key create --name "my-key" --database-url "postgresql://..."
-# Output: agk_live_<key_id>.<secret>
 ```
 
-### 3. Submit a scan
+Or deploy via Docker on Railway:
 
-```bash
-curl -X POST http://localhost:8000/v1/scans \
-  -H "X-API-Key: agk_live_<key_id>.<secret>" \
-  -H "Content-Type: application/json" \
-  -d '{"repo_url": "https://github.com/owner/agent"}'
-```
+- `Dockerfile.api` — API service (port 8000)
+- `Dockerfile.worker` — background worker
 
-That's it. One call. The scan clones, analyzes, deploys, probes, and returns a verdict. Stream progress with:
+Required env vars: `DATABASE_URL`, `REDIS_URL`
 
-```bash
-curl -H "X-API-Key: <key>" \
-  "http://localhost:8000/v1/scans/<scan_id>/events?stream=true"
-```
+Optional: `AGENTGATE_WEBHOOK_SECRET`, `AGENTGATE_CORS_ORIGINS`, `AGENTGATE_ADAPTIVE_TRUST`, `ANTHROPIC_API_KEY`
 
-### 4. Try the dashboard
-
-Open `dashboard.html` in a browser for a visual scan experience with real-time progress, verdict display, and findings breakdown.
+</details>
 
 ### CLI (alternative)
 
-The CLI can also run scans directly without the hosted API:
+The CLI can run scans directly without the hosted API:
 
 ```bash
+pip install -e .
+
 # Trust scan against a live agent
 agentgate trust-scan \
   --url https://my-agent.example.com \
