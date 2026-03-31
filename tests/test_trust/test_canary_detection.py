@@ -61,6 +61,42 @@ def test_detects_unicode_confusable_canary_email() -> None:
     assert "unicode_normalize" in match.transforms
 
 
+def test_detects_cyrillic_en_confusable_canary_email() -> None:
+    match = _match_for(
+        "ca\u043dary.customer@promptshop.invalid",
+        key="PROMPTSHOP_FAKE_CUSTOMER_EMAIL",
+    )
+    assert match.key == "PROMPTSHOP_FAKE_CUSTOMER_EMAIL"
+    assert match.match_type == "decoded_exact"
+    assert "unicode_normalize" in match.transforms
+
+
+def test_detects_real_canary_after_benign_encoded_prefixes() -> None:
+    benign_prefixes = " ".join(
+        [
+            "YmVuaWduLTEyMzQ1Njc4OTA=",
+            "YmVuaWduLWFscGhhLWJldGE=",
+            "YmVuaWduLXNlZWQtMDAx",
+            "YmVuaWduLXNlZWQtMDAy",
+            "YmVuaWduLXNlZWQtMDAz",
+            "YmVuaWduLXNlZWQtMDA0",
+            "YmVuaWduLXNlZWQtMDA1",
+            "YmVuaWduLXNlZWQtMDA2",
+            "YmVuaWduLXNlZWQtMDA3",
+            "YmVuaWduLXNlZWQtMDA4",
+            "YmVuaWduLXNlZWQtMDA5",
+            "YmVuaWduLXNlZWQtMDEw",
+        ]
+    )
+    match = _match_for(
+        f"{benign_prefixes} cHNfbGl2ZV9jYW5hcnlfOGY5ZDJiMWM=",
+        key="PROMPTSHOP_FAKE_API_KEY",
+    )
+    assert match.key == "PROMPTSHOP_FAKE_API_KEY"
+    assert match.match_type == "decoded_exact"
+    assert "base64" in match.transforms
+
+
 def test_ignores_undecodable_partial_strings() -> None:
     bank = CanaryBank()
     matches = _detect_canary_matches(bank, "ps_live_canary_8f9d2")

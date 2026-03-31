@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import base64
 import binascii
+from dataclasses import dataclass
 import re
 import string
 import unicodedata
@@ -11,13 +11,15 @@ from urllib.parse import unquote
 from agentgate.trust.runtime.canary_bank import CanaryBank
 
 _MAX_TEXT_LENGTH = 16_384
-_MAX_DECODING_CANDIDATES = 12
 _EXCERPT_RADIUS = 24
 
 _B64_CANDIDATE_RE = re.compile(
     r"(?<![A-Za-z0-9+/=_-])(?:[A-Za-z0-9+/]{12,}={0,2}|[A-Za-z0-9_-]{16,})(?![A-Za-z0-9+/=_-])"
 )
 _HEX_CANDIDATE_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{16,}(?![0-9A-Fa-f])")
+_CHAR_SPLIT_SPAN_RE = re.compile(
+    r"(?<![0-9A-Za-z_])(?:[0-9A-Za-z_]{1,2}[.\s-]+){7,}[0-9A-Za-z_]{1,2}(?![0-9A-Za-z_])"
+)
 _CONFUSABLE_TRANSLATION = str.maketrans(
     {
         "а": "a",
@@ -42,8 +44,8 @@ _CONFUSABLE_TRANSLATION = str.maketrans(
         "К": "K",
         "м": "m",
         "М": "M",
-        "н": "h",
-        "Н": "H",
+        "н": "n",
+        "Н": "N",
         "т": "t",
         "Т": "T",
         "л": "l",
@@ -65,6 +67,13 @@ class CanaryMatch:
     transforms: tuple[str, ...]
     source: str | None = None
     excerpt: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _TextVariant:
+    text: str
+    transforms: tuple[str, ...]
+    excerpt: str
 
 
 def detect_canary_matches(bank: CanaryBank, text: str) -> list[CanaryMatch]:
@@ -113,43 +122,58 @@ def _find_literal_match(key: str, value: str, text: str) -> CanaryMatch | None:
 def _find_decoded_match(
     key: str,
     value: str,
-    variants: list[tuple[str, tuple[str, ...]]],
+    variants: list[_TextVariant],
 ) -> CanaryMatch | None:
-    for candidate_text, transforms in variants:
-        if not transforms:
+    for variant in variants:
+        if not variant.transforms:
             continue
 
-        match_target = _first_present_match_target(candidate_text, key, value)
+        match_target = _first_present_match_target(variant.text, key, value)
         if match_target is None:
             continue
         return CanaryMatch(
             key=key,
             match_type="decoded_exact",
-            transforms=transforms,
-            excerpt=_excerpt(candidate_text, match_target),
+            transforms=variant.transforms,
+            excerpt=variant.excerpt,
         )
 
     return None
 
 
-def _build_variants(text: str) -> list[tuple[str, tuple[str, ...]]]:
-    variants: list[tuple[str, tuple[str, ...]]] = [(text, ())]
+def _build_variants(text: str) -> list[_TextVariant]:
+    variants: list[_TextVariant] = [_TextVariant(text=text, transforms=(), excerpt=_bounded_excerpt(text))]
 
-    _append_variant(variants, _normalize_unicode_text(text), ("unicode_normalize",))
-    _append_variant(variants, unquote(text), ("url_decode",))
-    _append_variant(variants, _char_join_text(text, preserve_underscores=True), ("char_join",))
-    _append_variant(variants, _char_join_text(text, preserve_underscores=False), ("char_join",))
+    _append_variant(
+        variants,
+        _TextVariant(
+            text=_normalize_unicode_text(text),
+            transforms=("unicode_normalize",),
+            excerpt=_bounded_excerpt(text),
+        ),
+    )
+    _append_variant(
+        variants,
+        _TextVariant(
+            text=unquote(text),
+            transforms=("url_decode",),
+            excerpt=_bounded_excerpt(text),
+        ),
+    )
 
-    for decoded_text, transform in _decode_replacements(text, "base64"):
-        _append_variant(variants, decoded_text, transform)
+    for variant in _char_join_variants(text):
+        _append_variant(variants, variant)
 
-    for decoded_text, transform in _decode_replacements(text, "hex"):
-        _append_variant(variants, decoded_text, transform)
+    for variant in _decode_replacements(text, "base64"):
+        _append_variant(variants, variant)
+
+    for variant in _decode_replacements(text, "hex"):
+        _append_variant(variants, variant)
 
     return variants
 
 
-def _decode_replacements(text: str, mode: str) -> list[tuple[str, tuple[str, ...]]]:
+def _decode_replacements(text: str, mode: str) -> list[_TextVariant]:
     if len(text) > _MAX_TEXT_LENGTH:
         return []
 
@@ -164,28 +188,35 @@ def _decode_replacements(text: str, mode: str) -> list[tuple[str, tuple[str, ...
     else:  # pragma: no cover - defensive guard
         return []
 
-    variants: list[tuple[str, tuple[str, ...]]] = []
-    for candidate in pattern.findall(text)[:_MAX_DECODING_CANDIDATES]:
+    variants: list[_TextVariant] = []
+    for match in pattern.finditer(text):
+        candidate = match.group(0)
         decoded = decoder(candidate)
         if decoded is None:
             continue
-        variants.append((text.replace(candidate, decoded, 1), (label,)))
+        start, end = match.span()
+        variants.append(
+            _TextVariant(
+                text=f"{text[:start]}{decoded}{text[end:]}",
+                transforms=(label,),
+                excerpt=_excerpt_span(text, start, end),
+            )
+        )
     return variants
 
 
 def _append_variant(
-    variants: list[tuple[str, tuple[str, ...]]],
-    candidate_text: str,
-    transforms: tuple[str, ...],
+    variants: list[_TextVariant],
+    variant: _TextVariant,
 ) -> None:
-    if not candidate_text or candidate_text == variants[0][0]:
+    if not variant.text or variant.text == variants[0].text:
         return
 
-    for existing_text, _ in variants:
-        if existing_text == candidate_text:
+    for existing in variants:
+        if existing.text == variant.text:
             return
 
-    variants.append((candidate_text, transforms))
+    variants.append(variant)
 
 
 def _normalize_unicode_text(text: str) -> str:
@@ -197,29 +228,22 @@ def _normalize_unicode_text(text: str) -> str:
     return normalized
 
 
-def _char_join_text(text: str, *, preserve_underscores: bool) -> str:
-    if not _looks_char_split(text):
-        return text
-    if preserve_underscores:
-        return re.sub(r"[^0-9A-Za-z_]+", "", text)
-    return re.sub(r"[^0-9A-Za-z]+", "", text)
-
-
-def _looks_char_split(text: str) -> bool:
-    alnum_count = sum(1 for char in text if char.isalnum())
-    if alnum_count < 8:
-        return False
-
-    separator_count = sum(1 for char in text if not char.isalnum())
-    if separator_count < 4:
-        return False
-
-    chunks = [chunk for chunk in re.split(r"[^0-9A-Za-z]+", text) if chunk]
-    if len(chunks) < 8:
-        return False
-
-    single_char_chunks = sum(1 for chunk in chunks if len(chunk) == 1)
-    return single_char_chunks / len(chunks) >= 0.6
+def _char_join_variants(text: str) -> list[_TextVariant]:
+    variants: list[_TextVariant] = []
+    for match in _CHAR_SPLIT_SPAN_RE.finditer(text):
+        span = match.group(0)
+        joined = re.sub(r"[.\s-]+", "", span)
+        if joined == span:
+            continue
+        start, end = match.span()
+        variants.append(
+            _TextVariant(
+                text=f"{text[:start]}{joined}{text[end:]}",
+                transforms=("char_join",),
+                excerpt=_excerpt_span(text, start, end),
+            )
+        )
+    return variants
 
 
 def _decode_base64_candidate(candidate: str) -> str | None:
@@ -283,6 +307,18 @@ def _excerpt(text: str, needle: str) -> str:
     start = max(0, index - _EXCERPT_RADIUS)
     end = min(len(text), index + len(needle) + _EXCERPT_RADIUS)
     return text[start:end]
+
+
+def _excerpt_span(text: str, start: int, end: int) -> str:
+    excerpt_start = max(0, start - _EXCERPT_RADIUS)
+    excerpt_end = min(len(text), end + _EXCERPT_RADIUS)
+    return text[excerpt_start:excerpt_end]
+
+
+def _bounded_excerpt(text: str) -> str:
+    if len(text) <= (_EXCERPT_RADIUS * 2) + 5:
+        return text
+    return f"{text[:_EXCERPT_RADIUS]} ... {text[-_EXCERPT_RADIUS:]}"
 
 
 __all__ = ["CanaryMatch", "detect_canary_matches"]
