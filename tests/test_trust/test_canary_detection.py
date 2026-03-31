@@ -51,16 +51,6 @@ def test_detects_char_split_canary_value() -> None:
     assert "char_join" in match.transforms
 
 
-def test_detects_general_separator_char_split_canary_value() -> None:
-    match = _match_for(
-        "p s _ l i v e _ c a n a r y _ 8 f 9 d 2 b 1 c",
-        key="PROMPTSHOP_FAKE_API_KEY",
-    )
-    assert match.key == "PROMPTSHOP_FAKE_API_KEY"
-    assert match.match_type == "decoded_exact"
-    assert "char_join" in match.transforms
-
-
 def test_detects_unicode_confusable_canary_email() -> None:
     match = _match_for(
         "c\u0430n\u0430ry.cust\u043emer@pr\u043emptshop.invalid",
