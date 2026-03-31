@@ -83,7 +83,7 @@ def detect_canary_matches(bank: CanaryBank, text: str) -> list[CanaryMatch]:
         return []
 
     variants: list[_TextVariant] = []
-    for segment in _transform_segments(text):
+    for segment in _transform_segments(text, tokens):
         for variant in _build_variants(segment):
             _append_variant(variants, variant)
     matches: list[CanaryMatch] = []
@@ -291,16 +291,31 @@ def _decode_char_split_span(span: str) -> str | None:
     return normalized or None
 
 
-def _transform_segments(text: str) -> list[str]:
+def _transform_segments(text: str, tokens: dict[str, str]) -> list[str]:
     if len(text) <= _MAX_TEXT_LENGTH:
         return [text]
 
-    segments = [text[:_MAX_TEXT_LENGTH], text[-_MAX_TEXT_LENGTH:]]
-    deduped: list[str] = []
-    for segment in segments:
-        if segment not in deduped:
-            deduped.append(segment)
-    return deduped
+    overlap = _transform_overlap(tokens)
+    step = max(1, _MAX_TEXT_LENGTH - overlap)
+
+    segments: list[str] = []
+    start = 0
+    while start < len(text):
+        end = min(len(text), start + _MAX_TEXT_LENGTH)
+        segments.append(text[start:end])
+        if end >= len(text):
+            break
+        start += step
+
+    return segments
+
+
+def _transform_overlap(tokens: dict[str, str]) -> int:
+    longest_seed = 1
+    for key, value in tokens.items():
+        longest_seed = max(longest_seed, len(key), len(value))
+
+    return min(_MAX_TEXT_LENGTH // 2, max(256, longest_seed * 4))
 
 
 def _decode_base64_candidate(candidate: str) -> str | None:

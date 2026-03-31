@@ -97,6 +97,16 @@ def test_detects_real_canary_after_benign_encoded_prefixes() -> None:
     assert "base64" in match.transforms
 
 
+def test_detects_encoded_canary_in_middle_of_long_text() -> None:
+    match = _match_for(
+        ("x" * 17_000) + " cHNfbGl2ZV9jYW5hcnlfOGY5ZDJiMWM= " + ("y" * 17_000),
+        key="PROMPTSHOP_FAKE_API_KEY",
+    )
+    assert match.key == "PROMPTSHOP_FAKE_API_KEY"
+    assert match.match_type == "decoded_exact"
+    assert "base64" in match.transforms
+
+
 def test_detects_literal_canary_after_long_prefix() -> None:
     match = _match_for(
         ("x" * 17_000) + "ps_live_canary_8f9d2b1c",
