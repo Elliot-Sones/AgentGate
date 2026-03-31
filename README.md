@@ -160,47 +160,6 @@ flowchart TD
 
 ---
 
-## Hosted API
-
-AgentGate runs as a hosted service. One API call does everything.
-
-### Start a scan
-
-```bash
-curl -X POST https://your-api.railway.app/v1/scans \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: agk_live_<key_id>.<secret>" \
-  -d '{"repo_url": "https://github.com/seller/their-agent"}'
-```
-
-### Watch it in real-time (SSE)
-
-```bash
-curl -H "X-API-Key: <key>" \
-  "https://your-api.railway.app/v1/scans/<scan_id>/events?stream=true"
-```
-
-### Get the report
-
-```bash
-curl -H "X-API-Key: <key>" \
-  "https://your-api.railway.app/v1/scans/<scan_id>/report"
-```
-
-### API features
-
-- **Input validation** with SSRF protection — rejects private IPs, localhost, DNS rebinding
-- **Consistent error envelope** — every error returns `{"error": "<code>", "detail": "<message>"}`
-- **Per-API-key rate limiting** on scan creation (10/min)
-- **Deep health check** — probes Postgres and Redis, returns 503 if either is down
-- **Typed failure reasons** — `auth_required`, `endpoint_not_found`, `deployment_unusable`, `boot_timeout`, `deployment_failed`
-- **Human-readable failure explanations** — every failure includes a title, description, and actionable next step
-- **Webhook delivery** with HMAC-SHA256 signing and DNS-resolution SSRF guard
-- **SSE event streaming** with resumable cursors via `Last-Event-ID`
-- **Idempotency keys** for exactly-once scan creation
-
----
-
 ## The Verdicts
 
 | Verdict | What happens | When |
@@ -354,6 +313,18 @@ curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
 ### Dashboard
 
 Open `dashboard.html` in a browser for a visual scan experience with real-time progress, verdict display, and findings breakdown.
+
+### API features
+
+- **Input validation** with SSRF protection — rejects private IPs, localhost, DNS rebinding
+- **Consistent error envelope** — every error returns `{"error": "<code>", "detail": "<message>"}`
+- **Per-API-key rate limiting** on scan creation (10/min)
+- **Deep health check** — probes Postgres and Redis, returns 503 if either is down
+- **Typed failure reasons** — `auth_required`, `endpoint_not_found`, `deployment_unusable`, `boot_timeout`, `deployment_failed`
+- **Human-readable failure explanations** — every failure includes a title, description, and actionable next step
+- **Webhook delivery** with HMAC-SHA256 signing and DNS-resolution SSRF guard
+- **SSE event streaming** with resumable cursors via `Last-Event-ID`
+- **Idempotency keys** for exactly-once scan creation
 
 ### Self-hosting
 
