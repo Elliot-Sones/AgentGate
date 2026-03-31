@@ -281,10 +281,9 @@ permissions:
 |---|---|
 | Security detectors (heuristic, no LLM) | $0.00 |
 | Adaptive specialists (10-12 Sonnet calls) | ~$0.10 |
-| Railway compute (~10 min) | ~$0.02 |
-| **Total** | **~$0.12** |
+| **Total** | **~$0.10** |
 
-Disable adaptive specialists with `AGENTGATE_ADAPTIVE_TRUST=0` for ~$0.02/scan (static + live probes only, zero LLM cost).
+Disable adaptive specialists for $0.00/scan (static + live probes only, zero LLM cost).
 
 ---
 
