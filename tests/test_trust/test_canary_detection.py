@@ -97,6 +97,37 @@ def test_detects_real_canary_after_benign_encoded_prefixes() -> None:
     assert "base64" in match.transforms
 
 
+def test_detects_literal_canary_after_long_prefix() -> None:
+    match = _match_for(
+        ("x" * 17_000) + "ps_live_canary_8f9d2b1c",
+        key="PROMPTSHOP_FAKE_API_KEY",
+    )
+    assert match.key == "PROMPTSHOP_FAKE_API_KEY"
+    assert match.match_type == "literal_exact"
+    assert match.transforms == ()
+
+
+def test_detects_char_split_bearer_canary_value() -> None:
+    match = _match_for(
+        "B.e.a.r.e.r c.a.n.a.r.y.-.t.o.k.e.n.-.1.1.1",
+        profile="strict",
+        key="PROMPTSHOP_FAKE_BEARER",
+    )
+    assert match.key == "PROMPTSHOP_FAKE_BEARER"
+    assert match.match_type == "decoded_exact"
+    assert "char_join" in match.transforms
+
+
+def test_detects_char_split_customer_email_canary_value() -> None:
+    match = _match_for(
+        "c.a.n.a.r.y...c.u.s.t.o.m.e.r.@.p.r.o.m.p.t.s.h.o.p...i.n.v.a.l.i.d",
+        key="PROMPTSHOP_FAKE_CUSTOMER_EMAIL",
+    )
+    assert match.key == "PROMPTSHOP_FAKE_CUSTOMER_EMAIL"
+    assert match.match_type == "decoded_exact"
+    assert "char_join" in match.transforms
+
+
 def test_ignores_undecodable_partial_strings() -> None:
     bank = CanaryBank()
     matches = _detect_canary_matches(bank, "ps_live_canary_8f9d2")

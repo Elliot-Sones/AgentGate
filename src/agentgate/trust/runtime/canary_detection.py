@@ -17,9 +17,7 @@ _B64_CANDIDATE_RE = re.compile(
     r"(?<![A-Za-z0-9+/=_-])(?:[A-Za-z0-9+/]{12,}={0,2}|[A-Za-z0-9_-]{16,})(?![A-Za-z0-9+/=_-])"
 )
 _HEX_CANDIDATE_RE = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{16,}(?![0-9A-Fa-f])")
-_CHAR_SPLIT_SPAN_RE = re.compile(
-    r"(?<![0-9A-Za-z_])(?:[0-9A-Za-z_]{1,2}[.\s-]+){7,}[0-9A-Za-z_]{1,2}(?![0-9A-Za-z_])"
-)
+_CHAR_SPLIT_SPAN_RE = re.compile(r"[A-Za-z0-9_@.\-\s]{12,}")
 _CONFUSABLE_TRANSLATION = str.maketrans(
     {
         "а": "a",
@@ -84,8 +82,10 @@ def detect_canary_matches(bank: CanaryBank, text: str) -> list[CanaryMatch]:
     if not tokens:
         return []
 
-    bounded_text = text[:_MAX_TEXT_LENGTH]
-    variants = _build_variants(bounded_text)
+    variants: list[_TextVariant] = []
+    for segment in _transform_segments(text):
+        for variant in _build_variants(segment):
+            _append_variant(variants, variant)
     matches: list[CanaryMatch] = []
     seen_keys: set[str] = set()
 
@@ -93,7 +93,7 @@ def detect_canary_matches(bank: CanaryBank, text: str) -> list[CanaryMatch]:
         if key in seen_keys:
             continue
 
-        literal_match = _find_literal_match(key, value, bounded_text)
+        literal_match = _find_literal_match(key, value, text)
         if literal_match is not None:
             matches.append(literal_match)
             seen_keys.add(key)
@@ -209,7 +209,7 @@ def _append_variant(
     variants: list[_TextVariant],
     variant: _TextVariant,
 ) -> None:
-    if not variant.text or variant.text == variants[0].text:
+    if not variant.text:
         return
 
     for existing in variants:
@@ -232,8 +232,8 @@ def _char_join_variants(text: str) -> list[_TextVariant]:
     variants: list[_TextVariant] = []
     for match in _CHAR_SPLIT_SPAN_RE.finditer(text):
         span = match.group(0)
-        joined = re.sub(r"[.\s-]+", "", span)
-        if joined == span:
+        joined = _decode_char_split_span(span)
+        if joined is None or joined == span:
             continue
         start, end = match.span()
         variants.append(
@@ -244,6 +244,63 @@ def _char_join_variants(text: str) -> list[_TextVariant]:
             )
         )
     return variants
+
+
+def _decode_char_split_span(span: str) -> str | None:
+    chunks = [chunk for chunk in re.split(r"[.\s]+", span) if chunk]
+    if len(chunks) < 8:
+        return None
+
+    single_char_chunks = sum(1 for chunk in chunks if len(chunk) == 1)
+    if single_char_chunks / len(chunks) < 0.7:
+        return None
+
+    rebuilt: list[str] = []
+    index = 0
+    while index < len(span):
+        char = span[index]
+
+        if char.isalnum() or char == "_":
+            rebuilt.append(char)
+            index += 1
+            continue
+
+        if char.isspace():
+            if rebuilt and rebuilt[-1] != " ":
+                rebuilt.append(" ")
+            while index < len(span) and span[index].isspace():
+                index += 1
+            continue
+
+        if char == ".":
+            if index + 2 < len(span) and span[index + 2] == "." and span[index + 1] in ".@-_":
+                rebuilt.append(span[index + 1])
+                index += 3
+                continue
+            index += 1
+            continue
+
+        if char == "-":
+            rebuilt.append("-")
+            index += 1
+            continue
+
+        return None
+
+    normalized = "".join(rebuilt).strip()
+    return normalized or None
+
+
+def _transform_segments(text: str) -> list[str]:
+    if len(text) <= _MAX_TEXT_LENGTH:
+        return [text]
+
+    segments = [text[:_MAX_TEXT_LENGTH], text[-_MAX_TEXT_LENGTH:]]
+    deduped: list[str] = []
+    for segment in segments:
+        if segment not in deduped:
+            deduped.append(segment)
+    return deduped
 
 
 def _decode_base64_candidate(candidate: str) -> str | None:
