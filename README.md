@@ -311,62 +311,78 @@ permissions:
 
 ---
 
-## Cost per scan
+## Cost per Scan
 
 | Component | Cost |
 |---|---|
 | Security detectors (heuristic, no LLM) | $0.00 |
-| Adaptive specialists (5 Sonnet calls) | ~$0.10 |
+| Adaptive specialists (10-12 Sonnet calls) | ~$0.10 |
 | Railway compute (~10 min) | ~$0.02 |
 | **Total** | **~$0.12** |
 
-Adaptive specialists can be disabled with `AGENTGATE_ADAPTIVE_TRUST=0` for $0.02/scan (static + live probes only).
+Disable adaptive specialists with `AGENTGATE_ADAPTIVE_TRUST=0` for ~$0.02/scan (static + live probes only, zero LLM cost).
 
 ---
 
 ## Quick Start
 
-### CLI
+### 1. Deploy the API
+
+AgentGate runs as two services: a FastAPI API and an arq background worker. Both need Postgres and Redis.
 
 ```bash
 pip install -e ".[server]"
 
-# Scan a live agent
+# Start the API
+DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
+  uvicorn agentgate.server.app:create_app --factory --port 8000
+
+# Start the worker (in a separate terminal)
+DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
+  arq agentgate.worker.settings.WorkerSettings
+```
+
+### 2. Create an API key
+
+```bash
+agentgate api-key create --name "my-key" --database-url "postgresql://..."
+# Output: agk_live_<key_id>.<secret>
+```
+
+### 3. Submit a scan
+
+```bash
+curl -X POST http://localhost:8000/v1/scans \
+  -H "X-API-Key: agk_live_<key_id>.<secret>" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/owner/agent"}'
+```
+
+That's it. One call. The scan clones, analyzes, deploys, probes, and returns a verdict. Stream progress with:
+
+```bash
+curl -H "X-API-Key: <key>" \
+  "http://localhost:8000/v1/scans/<scan_id>/events?stream=true"
+```
+
+### 4. Try the dashboard
+
+Open `dashboard.html` in a browser for a visual scan experience with real-time progress, verdict display, and findings breakdown.
+
+### CLI (alternative)
+
+The CLI can also run scans directly without the hosted API:
+
+```bash
+# Trust scan against a live agent
 agentgate trust-scan \
   --url https://my-agent.example.com \
   --source-dir ./src \
   --manifest ./trust_manifest.yaml \
   --format all
 
-# Red team test
+# Red team security test
 agentgate scan http://localhost:8000/api --name "My Agent" --format all
-```
-
-### Hosted API
-
-```bash
-# Start API + worker (requires Postgres + Redis)
-DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
-  uvicorn agentgate.server.app:create_app --factory --port 8000
-
-# Create an API key
-agentgate api-key create --name "my-key" --database-url "postgresql://..."
-
-# Submit a scan
-curl -X POST http://localhost:8000/v1/scans \
-  -H "X-API-Key: <key>" \
-  -H "Content-Type: application/json" \
-  -d '{"repo_url": "https://github.com/owner/agent"}'
-```
-
-### Demo agents
-
-```bash
-# Build and scan all 3 demo agents
-cd demo_agents && ./run_demo.sh
-
-# PromptShop-style trust workflow
-cd demo_agents && ./run_promptshop_demo.sh
 ```
 
 ---
@@ -375,38 +391,57 @@ cd demo_agents && ./run_promptshop_demo.sh
 
 ```
 agentgate/
-  server/          # FastAPI API service (Dockerfile.api)
-    app.py         # Lifespan, error envelope, CORS, rate limiting
-    routes/        # /v1/scans, /v1/health
-    db.py          # Postgres via asyncpg
-    webhook.py     # HMAC-signed delivery with SSRF guard
-  worker/          # arq background worker (Dockerfile.worker)
-    tasks.py       # Scan orchestration
+  server/            # FastAPI API service (Dockerfile.api)
+    app.py           # Lifespan, error envelope, CORS, rate limiting
+    routes/          # /v1/scans, /v1/health
+    db.py            # Postgres via asyncpg
+    webhook.py       # HMAC-signed delivery with SSRF guard
+  worker/            # arq background worker (Dockerfile.worker)
+    tasks.py         # Scan job orchestration
   services/
-    scan_runner.py # Clone → deploy → probe → verdict pipeline
+    scan_runner.py   # Clone → deploy → probe → verdict pipeline
   trust/
-    scanner.py     # Trust check orchestration
-    checks/        # 11 trust checks (5 static + 6 runtime)
-    runtime/       # Railway executor, adaptive specialists
-    policy.py      # Verdict policy engine
-  detectors/       # 12 security detectors
-  scanner.py       # Security scan orchestrator
+    scanner.py       # Trust check orchestration
+    checks/          # 11 trust checks (5 static + 6 runtime)
+    runtime/         # Railway executor, adaptive specialists
+    policy.py        # Verdict policy engine
+  detectors/         # 12 security detectors
+  scanner.py         # Security scan orchestrator
+dashboard.html       # Browser-based scan UI (no build step)
 ```
 
 ---
 
 ## CI/CD Integration
 
+Use the API in your CI pipeline to gate agent deployments:
+
 ```bash
-agentgate trust-scan \
-  --url $HOSTED_AGENT_URL \
-  --source-dir ./src \
-  --manifest ./trust_manifest.yaml \
-  --fail-on block \
-  --format sarif
+# Submit scan and wait for result
+SCAN_ID=$(curl -s -X POST https://your-api/v1/scans \
+  -H "X-API-Key: $AGENTGATE_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"repo_url\": \"$REPO_URL\"}" | jq -r '.id')
+
+# Poll until complete
+while true; do
+  STATUS=$(curl -s -H "X-API-Key: $AGENTGATE_KEY" \
+    https://your-api/v1/scans/$SCAN_ID | jq -r '.status')
+  [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ] && break
+  sleep 5
+done
+
+# Check verdict
+VERDICT=$(curl -s -H "X-API-Key: $AGENTGATE_KEY" \
+  https://your-api/v1/scans/$SCAN_ID | jq -r '.verdict')
+[ "$VERDICT" = "block" ] && exit 1
 ```
 
-Exit code 1 if the verdict meets or exceeds `--fail-on`. SARIF output plugs into GitHub Advanced Security.
+The CLI also supports SARIF output for GitHub Advanced Security:
+
+```bash
+agentgate trust-scan --url $URL --fail-on block --format sarif
+```
 
 ---
 
@@ -414,7 +449,8 @@ Exit code 1 if the verdict meets or exceeds `--fail-on`. SARIF output plugs into
 
 - **Canary detection is string matching.** If an agent encodes stolen credentials before sending them, a simple log scan may miss the value.
 - **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
-- **Deploy timeout.** Large repos with heavy Docker builds may time out. Use `hosted_url` for pre-deployed agents.
+- **Deploy timeout.** Large repos with heavy Docker builds may time out during sandbox deployment. A future release will add support for scanning pre-deployed agents via a hosted URL parameter.
+- **Python agents only.** The current runtime supports Python HTTP agents. Other runtimes (Node.js, Go) are architecturally supported but not yet implemented.
 
 ---
 
@@ -422,6 +458,7 @@ Exit code 1 if the verdict meets or exceeds `--fail-on`. SARIF output plugs into
 
 - **Python 3.11+**
 - **Postgres + Redis** for the hosted API
+- **Railway account** for sandbox agent deployment (worker)
 - **cosign** (optional) for image signature verification
 - **Anthropic API key** (optional) for adaptive specialists and LLM-generated attacks
 
@@ -431,15 +468,14 @@ Exit code 1 if the verdict meets or exceeds `--fail-on`. SARIF output plugs into
 
 ```bash
 pip install -e ".[dev,server]"
-uv run pytest tests/ -x -q
+uv run pytest tests/ -x -q       # 538 tests
 uv run ruff check src/
 ```
 
 ---
 
-## Supporting Docs
+## Docs
 
-- [`docs/promptshop_founder_memo.md`](docs/promptshop_founder_memo.md) — founder/CTO positioning
 - [`docs/promptshop_engineering_brief.md`](docs/promptshop_engineering_brief.md) — engineering architecture brief
 - [`docs/trust_benchmarking.md`](docs/trust_benchmarking.md) — benchmark harness and results
 - [`docs/ci_integration.md`](docs/ci_integration.md) — CI/CD integration guide
