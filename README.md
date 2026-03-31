@@ -153,20 +153,24 @@ curl -H "X-API-Key: <key>" \
 
 ## What We Found
 
-We tested AgentGate against 5 real agents — including two popular open-source frameworks pulled straight from Docker Hub.
+We tested AgentGate against 9 real agents — from popular open-source frameworks to purpose-built malicious agents.
 
 | Agent | What it does | What we found | Verdict |
 |---|---|---|---|
 | **[Flowise](https://github.com/FlowiseAI/Flowise)** (47k stars) | No-code chatbot builder | Secretly connecting to outside servers without telling you, and containing phrases that could override agent instructions | **BLOCK** |
 | **[MetaGPT](https://github.com/FoundationAgents/MetaGPT)** (64k stars) | Multi-agent coding framework | Running arbitrary code on your system, executing shell commands, and making hidden internet requests | **MANUAL REVIEW** |
+| **[LangChain](https://github.com/langchain-ai/langchain)** (105k stars) | LLM application framework | 54 findings: dynamic imports via `importlib`, prompt override phrases in test fixtures, outbound HTTP calls, `eval()` usage | **MANUAL REVIEW** |
+| **[GPT Researcher](https://github.com/assafelovic/gpt-researcher)** (17k stars) | Autonomous research agent | Hidden instruction tokens, dynamic imports, outbound HTTP calls to search APIs, base64 decode usage | **MANUAL REVIEW** |
+| **[Lobe Chat](https://github.com/lobehub/lobe-chat)** (55k stars) | Chat agent platform | Static analysis flagged suspicious code patterns across the Node.js codebase | **MANUAL REVIEW** |
+| **[ShopFlow Support](https://github.com/Elliot-Sones/shopflow-support-agent)** | E-commerce customer support | Clean agent — no suspicious patterns, no hidden behavior, no undeclared network calls | **ALLOW CLEAN** |
 | Trojanized Support Bot | E-commerce customer support | Looks normal, but silently steals your API keys and passwords and sends them to an attacker | **CAUGHT** |
 | Stealth Exfil Bot | Same support bot, but sneakier | Does the same theft but hides all evidence and only activates when it thinks nobody is watching | **CAUGHT** |
 | Vulnerable Analytics Agent | Shopify data insights | Hands over customer emails when asked, follows malicious instructions, and makes up fake data | **CAUGHT** |
 
 ### Results at a glance
 
-- **5 agents tested**
-- **98 security findings surfaced**
+- **9 agents tested**
+- **150+ security findings surfaced**
 - **14 critical-severity issues** in Flowise alone
 - **100% detection rate** on intentionally malicious agents
 - **0 false positives**
