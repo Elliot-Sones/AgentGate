@@ -137,7 +137,8 @@ def _build_variants(text: str) -> list[tuple[str, tuple[str, ...]]]:
 
     _append_variant(variants, _normalize_unicode_text(text), ("unicode_normalize",))
     _append_variant(variants, unquote(text), ("url_decode",))
-    _append_variant(variants, _char_join_text(text), ("char_join",))
+    _append_variant(variants, _char_join_text(text, preserve_underscores=True), ("char_join",))
+    _append_variant(variants, _char_join_text(text, preserve_underscores=False), ("char_join",))
 
     for decoded_text, transform in _decode_replacements(text, "base64"):
         _append_variant(variants, decoded_text, transform)
@@ -196,20 +197,29 @@ def _normalize_unicode_text(text: str) -> str:
     return normalized
 
 
-def _char_join_text(text: str) -> str:
+def _char_join_text(text: str, *, preserve_underscores: bool) -> str:
     if not _looks_char_split(text):
         return text
-    return re.sub(r"[.\s]+", "", text)
+    if preserve_underscores:
+        return re.sub(r"[^0-9A-Za-z_]+", "", text)
+    return re.sub(r"[^0-9A-Za-z]+", "", text)
 
 
 def _looks_char_split(text: str) -> bool:
-    dense_separators = sum(1 for char in text if char in {".", " ", "\t", "\n", "\r"})
     alnum_count = sum(1 for char in text if char.isalnum())
     if alnum_count < 8:
         return False
-    if dense_separators < 4:
+
+    separator_count = sum(1 for char in text if not char.isalnum())
+    if separator_count < 4:
         return False
-    return "." in text
+
+    chunks = [chunk for chunk in re.split(r"[^0-9A-Za-z]+", text) if chunk]
+    if len(chunks) < 8:
+        return False
+
+    single_char_chunks = sum(1 for chunk in chunks if len(chunk) == 1)
+    return single_char_chunks / len(chunks) >= 0.6
 
 
 def _decode_base64_candidate(candidate: str) -> str | None:
