@@ -37,89 +37,113 @@ One `POST /v1/scans` triggers the full pipeline: clone, static analysis, deploy,
 
 AgentGate uses **staged confidence** to verify AI agents before they're listed on a marketplace. Each stage adds evidence. If any stage can't complete, the system classifies why and returns what it has.
 
+### Stage 1 — Intake
+
+```mermaid
+flowchart LR
+    A["POST /v1/scans\n+ API key"] --> B["Validate repo_url\nSSRF check\nRate limit"]
+    B --> C["Clone repo\nfrom GitHub"]
+    C --> D{"Manifest?"}
+    D -->|"Yes"| E["Load as hints"]
+    D -->|"No"| F["Infer from source"]
+    E --> G["Queue scan job"]
+    F --> G
+
+    style A fill:#a5d8ff,stroke:#4a9eed
+    style G fill:#a5d8ff,stroke:#4a9eed
+```
+
+### Stage 2 — Static Analysis
+
+Runs on source code before any deployment. Zero LLM cost.
+
+```mermaid
+flowchart LR
+    A["Source\nCode"] --> B["Code Signals\nexec, subprocess,\nimportlib, socket,\nbase64, requests"]
+    A --> C["Prompt Inspection\nhidden instructions,\noverride phrases,\nexfil directives"]
+    A --> D["Dependency Risk\ntyposquats,\nmissing lockfiles,\nmalicious packages"]
+    A --> E["Auth Detection\nDepends, login_required,\nAuthorization header,\njwt, HTTPBearer"]
+    A --> F["Env Inference\nenv vars, framework,\nports, probe paths,\nintegrations"]
+
+    style A fill:#d0bfff,stroke:#8b5cf6
+    style B fill:#d0bfff,stroke:#8b5cf6
+    style C fill:#d0bfff,stroke:#8b5cf6
+    style D fill:#d0bfff,stroke:#8b5cf6
+    style E fill:#d0bfff,stroke:#8b5cf6
+    style F fill:#d0bfff,stroke:#8b5cf6
+```
+
+### Stage 3 — Deploy to Sandbox
+
+Fills missing config with safe defaults and deploys the agent to an isolated Railway environment.
+
 ```mermaid
 flowchart TD
-    subgraph intake["Stage 1 — Intake"]
-        A["Marketplace calls\nPOST /v1/scans"] --> B["Validate repo_url\n+ SSRF check"]
-        B --> C["Rate limit check\n(10/min per API key)"]
-        C --> D["Enqueue scan job\nvia Redis/arq"]
-        D --> E["Clone repo\nfrom GitHub"]
-        E --> F{"Manifest\npresent?"}
-        F -->|Yes| G["Load trust_manifest.yaml\nas hint source"]
-        F -->|No| H["Continue without manifest\n(infer everything from source)"]
-    end
+    A["Fill missing env vars\nwith sandbox values"] --> B["Inject platform credentials\nSlack, Shopify, OpenAI, Anthropic"]
+    B --> C["Build Docker image\non Railway"]
+    C --> D["Wait for HTTP\nhealth check"]
+    D --> E{"Agent\nresponse?"}
+    E -->|"200 OK"| F["Ready for probing"]
+    E -->|"401 / 403"| G["auth_required\nAgent needs credentials\nnot available in sandbox"]
+    E -->|"5xx errors"| H["deployment_unusable\nAgent crashed or\nmissing dependencies"]
+    E -->|"No response"| I["boot_timeout\nAgent never started\nor wrong PORT"]
 
-    subgraph static["Stage 2 — Static Analysis"]
-        direction LR
-        I["Scan .py files for\nexec, subprocess,\nimportlib, socket,\nbase64, requests"]
-        J["Scan prompts for\nhidden instructions,\noverride phrases,\nexfil directives"]
-        K["Check dependencies\nfor typosquats,\nmissing lockfiles,\nknown malicious pkgs"]
-        L["Detect auth patterns:\nDepends(), @login_required,\nAuthorization header,\njwt.decode, HTTPBearer"]
-        M["Infer env vars,\nframework, ports,\nprobe paths,\nintegrations"]
-    end
+    style F fill:#b2f2bb,stroke:#22c55e,stroke-width:3px
+    style G fill:#ffc9c9,stroke:#ef4444
+    style H fill:#ffc9c9,stroke:#ef4444
+    style I fill:#ffc9c9,stroke:#ef4444
+```
 
-    subgraph deploy["Stage 3 — Deploy to Sandbox"]
-        N["Fill missing env vars\nwith sandbox values"] --> O["Inject platform credentials\n(Slack, Shopify, OpenAI, Anthropic)"]
-        O --> P["Build Docker image\non Railway"]
-        P --> Q["Wait for service\nto become healthy"]
-        Q --> R{"HTTP\nreachable?"}
-        R -->|"401/403"| S["auth_required"]
-        R -->|"No response"| T["boot_timeout"]
-        R -->|"5xx"| U["deployment_unusable"]
-        R -->|"200 OK"| V["Proceed to probing"]
-    end
+### Stage 4 — Live Probing
 
-    subgraph probe["Stage 4 — Live Probing"]
-        V --> W["Fetch /openapi.json\nDiscover POST endpoints\nResolve request field name"]
-        W --> X["Run 12 security detectors\n(heuristic, no LLM cost)"]
+Discovers the agent's real API surface, then attacks it.
 
-        subgraph detectors["Security Detectors"]
-            direction LR
-            D1["Prompt\nInjection"]
-            D2["System Prompt\nLeak"]
-            D3["Data\nExfiltration"]
-            D4["Tool\nMisuse"]
-            D5["Goal\nHijacking"]
-            D6["XPIA"]
-        end
+```mermaid
+flowchart TD
+    A["Fetch /openapi.json"] --> B["Discover POST endpoints\nResolve request field\nfrom schema"]
+    B --> C["Run 12 security detectors\nagainst live endpoint\n(heuristic — no LLM cost)"]
 
-        X --> Y{"Adaptive\nenabled?"}
-        Y -->|Yes| Z["Run adaptive trust specialists"]
+    C --> D["Prompt Injection\nDAN jailbreaks, role-play,\ninstruction overrides"]
+    C --> E["Data Exfiltration\nTry to steal secrets\nand credentials"]
+    C --> F["Tool Misuse\nInvoke tools outside\ntheir declared scope"]
+    C --> G["+ 9 more detectors\nXPIA, goal hijacking,\nsystem prompt leak, ..."]
 
-        subgraph specialists["Adaptive Specialists (LLM-powered)"]
-            direction LR
-            SP1["Egress Prober\nTrigger undeclared\nnetwork calls"]
-            SP2["Canary Stresser\nSeed fake creds,\ncheck for leaks"]
-            SP3["Tool Exerciser\nEnumerate all\ntool capabilities"]
-            SP4["Data Boundary\nTest cross-tenant\nisolation"]
-            SP5["Behavior\nConsistency\nCompare across runs"]
-            SP6["Memory\nPoisoning\nMutate state\nbetween sessions"]
-        end
+    D --> H{"Adaptive\nspecialists\nenabled?"}
+    E --> H
+    F --> H
+    G --> H
 
-        Y -->|No| AA["Skip specialists\n($0.00 LLM cost)"]
-    end
+    H -->|"Yes"| I["Egress Prober — trigger undeclared network calls"]
+    H -->|"Yes"| J["Canary Stresser — seed fake creds, check for leaks"]
+    H -->|"Yes"| K["Tool Exerciser — enumerate all tool capabilities"]
+    H -->|"Yes"| L["Data Boundary — test cross-tenant isolation"]
+    H -->|"Yes"| M["Behavior Consistency — compare across runs"]
+    H -->|"Yes"| N["Memory Poisoning — mutate state between sessions"]
+    H -->|"No"| O["Skip specialists\n$0.00 LLM cost"]
 
-    subgraph verdict["Stage 5 — Verdict"]
-        AB["Merge all findings\n(static + live + adaptive)"]
-        AB --> AC["Apply trust policy\n(severity weights + evidence strength)"]
-        AC --> AD["ALLOW CLEAN\nNo issues found"]
-        AC --> AE["ALLOW WITH WARNINGS\nMinor issues"]
-        AC --> AF["MANUAL REVIEW\nConcerning signals"]
-        AC --> AG["BLOCK\nCritical: stolen creds,\nundeclared egress,\nhidden behavior"]
-    end
+    style A fill:#b2f2bb,stroke:#22c55e
+    style I fill:#c3fae8,stroke:#06b6d4
+    style J fill:#c3fae8,stroke:#06b6d4
+    style K fill:#c3fae8,stroke:#06b6d4
+    style L fill:#c3fae8,stroke:#06b6d4
+    style M fill:#c3fae8,stroke:#06b6d4
+    style N fill:#c3fae8,stroke:#06b6d4
+```
 
-    intake --> static
-    static --> deploy
-    deploy --> probe
-    probe --> verdict
+### Stage 5 — Verdict
 
-    style AD fill:#b2f2bb,stroke:#22c55e,stroke-width:3px
-    style AE fill:#fff3bf,stroke:#f59e0b,stroke-width:3px
-    style AF fill:#d0bfff,stroke:#8b5cf6,stroke-width:3px
-    style AG fill:#ffc9c9,stroke:#ef4444,stroke-width:3px
-    style S fill:#ffc9c9,stroke:#ef4444,stroke-width:2px
-    style T fill:#ffc9c9,stroke:#ef4444,stroke-width:2px
-    style U fill:#ffc9c9,stroke:#ef4444,stroke-width:2px
+```mermaid
+flowchart TD
+    A["Merge all findings\nstatic + live + adaptive"] --> B["Apply trust policy\nseverity weights\nevidence strength"]
+    B --> C["ALLOW CLEAN\nNo issues found"]
+    B --> D["ALLOW WITH WARNINGS\nMinor issues\ne.g. missing lockfile"]
+    B --> E["MANUAL REVIEW\nConcerning signals\ne.g. hidden instructions"]
+    B --> F["BLOCK\nCritical issues:\nstolen creds, undeclared\negress, hidden behavior"]
+
+    style C fill:#b2f2bb,stroke:#22c55e,stroke-width:3px
+    style D fill:#fff3bf,stroke:#f59e0b,stroke-width:3px
+    style E fill:#d0bfff,stroke:#8b5cf6,stroke-width:3px
+    style F fill:#ffc9c9,stroke:#ef4444,stroke-width:3px
 ```
 
 > [View the interactive architecture diagram on Excalidraw](https://excalidraw.com/#json=Gm2uoDh9W1f_1CgCF7nSf,OJThIK4ff4P80NnhqJzyZA)
