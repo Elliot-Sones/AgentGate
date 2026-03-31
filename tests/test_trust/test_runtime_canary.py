@@ -72,3 +72,43 @@ async def test_canary_detects_from_logs_too(tmp_path: Path) -> None:
     failed = [f for f in findings if not f.passed]
     assert len(failed) >= 1
     assert failed[0].severity == TrustSeverity.CRITICAL
+
+
+@pytest.mark.asyncio
+async def test_canary_detects_base64_encoded_leak_in_logs(tmp_path: Path) -> None:
+    ctx = TrustScanContext(config=_config(tmp_path))
+    ctx.runtime_traces["review"] = _trace(
+        logs="decoded trace payload: cHNfbGl2ZV9jYW5hcnlfOGY5ZDJiMWM=",
+    )
+    check = RuntimeCanaryCheck()
+    findings = await check.run(ctx)
+    failed = [f for f in findings if not f.passed]
+    assert len(failed) >= 1
+    assert failed[0].severity == TrustSeverity.CRITICAL
+    assert "PROMPTSHOP_FAKE_API_KEY" in failed[0].observed
+
+
+@pytest.mark.asyncio
+async def test_canary_detects_urlencoded_leak_in_probe_responses_strict(
+    tmp_path: Path,
+) -> None:
+    ctx = TrustScanContext(config=_config(tmp_path, canary_profile="strict"))
+    ctx.runtime_traces["review"] = _trace(
+        probe_responses=[
+            {
+                "method": "GET",
+                "path": "/probe",
+                "status_code": 200,
+                "body_snippet": "token=Bearer%20canary-token-111",
+                "body_full": "token=Bearer%20canary-token-111",
+                "content_type": "text/plain",
+                "error": "",
+            }
+        ],
+    )
+    check = RuntimeCanaryCheck()
+    findings = await check.run(ctx)
+    failed = [f for f in findings if not f.passed]
+    assert len(failed) >= 1
+    assert failed[0].severity == TrustSeverity.CRITICAL
+    assert "PROMPTSHOP_FAKE_BEARER" in failed[0].observed
