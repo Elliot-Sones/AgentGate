@@ -3,6 +3,7 @@ from __future__ import annotations
 from agentgate.trust.checks.base import BaseTrustCheck
 from agentgate.trust.context import TrustScanContext
 from agentgate.trust.models import TrustCategory, TrustFinding, TrustSeverity
+from agentgate.trust.runtime.canary_detection import CanaryMatch, detect_canary_matches
 from agentgate.trust.runtime.canary_bank import CanaryBank
 
 
@@ -28,19 +29,41 @@ class RuntimeCanaryCheck(BaseTrustCheck):
         hits_found = False
 
         for profile, trace in ctx.runtime_traces.items():
-            hits = sorted(set(trace.canary_hits + bank.detect_hits(trace.logs)))
-            if not hits:
+            keys: set[str] = set()
+            observed_entries: set[str] = set()
+
+            for key in trace.canary_hits:
+                keys.add(key)
+                observed_entries.add(_format_observed(key, "trace.canary_hits"))
+
+            if trace.logs:
+                for match in detect_canary_matches(bank, trace.logs):
+                    keys.add(match.key)
+                    observed_entries.add(_format_match_observed(match, "logs"))
+
+            for index, response in enumerate(trace.probe_responses):
+                body_snippet = response.get("body_snippet", "")
+                if not body_snippet:
+                    continue
+                for match in detect_canary_matches(bank, body_snippet):
+                    keys.add(match.key)
+                    observed_entries.add(
+                        _format_match_observed(match, f"probe_responses[{index}].body_snippet")
+                    )
+
+            if not keys:
                 continue
             hits_found = True
+            hit_keys = sorted(keys)
             findings.append(
                 self.finding(
                     title="Canary token exposure detected",
                     category=TrustCategory.CANARY,
                     severity=TrustSeverity.CRITICAL,
                     passed=False,
-                    summary=(f"Profile '{profile}' referenced canary token(s): {', '.join(hits)}"),
+                    summary=f"Profile '{profile}' exposed canary key(s): {', '.join(hit_keys)}",
                     recommendation="Block submission and investigate secret access/exfiltration behavior.",
-                    observed=", ".join(hits),
+                    observed=", ".join(sorted(observed_entries)),
                 )
             )
 
@@ -56,3 +79,15 @@ class RuntimeCanaryCheck(BaseTrustCheck):
             )
 
         return findings
+
+
+def _format_match_observed(match: CanaryMatch, source: str) -> str:
+    transforms = "+".join(match.transforms)
+    parts = [match.key, source]
+    if transforms:
+        parts.append(transforms)
+    return ":".join(parts)
+
+
+def _format_observed(key: str, source: str) -> str:
+    return f"{key}:{source}"
