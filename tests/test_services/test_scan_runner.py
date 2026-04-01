@@ -29,6 +29,33 @@ class _DummyAdapter(AgentAdapter):
         return None
 
 
+class _FakeHTTPResponse:
+    def __init__(self, status_code: int, text: str = "") -> None:
+        self.status_code = status_code
+        self.text = text
+        self.headers: dict[str, str] = {}
+
+
+class _ReadinessClient:
+    def __init__(self, responses: dict[tuple[str, str], int], *args, **kwargs) -> None:
+        self._responses = responses
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url: str):
+        return _FakeHTTPResponse(self._responses.get(("GET", url), 503))
+
+    async def head(self, url: str):
+        return _FakeHTTPResponse(self._responses.get(("HEAD", url), 503))
+
+    async def options(self, url: str):
+        return _FakeHTTPResponse(self._responses.get(("OPTIONS", url), 503))
+
+
 @pytest.mark.asyncio
 async def test_scan_runner_clone_repo():
     runner = ScanRunner(work_dir=Path("/tmp/agentgate-test-runner"))
@@ -219,6 +246,113 @@ async def test_scan_runner_waits_for_live_attack_readiness(tmp_path):
         )
 
     assert calls == ["hello", "hello"]
+
+
+@pytest.mark.asyncio
+async def test_await_live_surface_ready_accepts_slack_integration_route(tmp_path):
+    runner = ScanRunner(work_dir=tmp_path)
+    runtime_profile = GeneratedRuntimeProfile(
+        probe_paths=["/", "/docs", "/openapi.json"],
+        integration_routes={"slack": ["/slack/events"]},
+    )
+    responses = {
+        ("GET", "https://submission.example.com"): 503,
+        ("GET", "https://submission.example.com/docs"): 503,
+        ("GET", "https://submission.example.com/health"): 503,
+        ("GET", "https://submission.example.com/healthz"): 503,
+        ("HEAD", "https://submission.example.com/slack/events"): 405,
+    }
+
+    with patch(
+        "agentgate.services.scan_runner.httpx.AsyncClient",
+        return_value=_ReadinessClient(responses),
+    ):
+        await runner._await_live_surface_ready(
+            base_url="https://submission.example.com",
+            runtime_profile=runtime_profile,
+            timeout_seconds=0.1,
+            poll_seconds=0.0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_await_live_surface_ready_accepts_shopify_integration_route(tmp_path):
+    runner = ScanRunner(work_dir=tmp_path)
+    runtime_profile = GeneratedRuntimeProfile(
+        probe_paths=["/", "/docs", "/openapi.json"],
+        integration_routes={"shopify": ["/shopify/webhooks"]},
+    )
+    responses = {
+        ("GET", "https://submission.example.com"): 503,
+        ("GET", "https://submission.example.com/docs"): 503,
+        ("GET", "https://submission.example.com/health"): 503,
+        ("GET", "https://submission.example.com/healthz"): 503,
+        ("OPTIONS", "https://submission.example.com/shopify/webhooks"): 401,
+    }
+
+    with patch(
+        "agentgate.services.scan_runner.httpx.AsyncClient",
+        return_value=_ReadinessClient(responses),
+    ):
+        await runner._await_live_surface_ready(
+            base_url="https://submission.example.com",
+            runtime_profile=runtime_profile,
+            timeout_seconds=0.1,
+            poll_seconds=0.0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_live_attack_scan_skips_generic_attack_for_integration_only_agent(tmp_path):
+    runner = ScanRunner(work_dir=tmp_path)
+    config = runner.build_trust_config(
+        source_dir=tmp_path / "scan_abc123" / "repo",
+        manifest_path="trust_manifest.yaml",
+        dockerfile_path="Dockerfile.api",
+        output_dir=tmp_path / "scan_abc123" / "output",
+    )
+    profile = GeneratedRuntimeProfile(
+        probe_paths=["/", "/docs", "/openapi.json"],
+        integration_routes={"slack": ["/slack/events"]},
+    )
+    source_review = {
+        "result": TrustScanResult(
+            scorecard=TrustScorecard(
+                checks_run=0,
+                checks_passed=0,
+                checks_failed=0,
+                findings_total=0,
+                findings_by_severity={},
+                verdict=TrustVerdict.ALLOW_CLEAN,
+                duration_seconds=0.0,
+            ),
+            findings=[],
+            generated_runtime_profile=profile,
+        ),
+        "attack_hints": ["integration:slack"],
+    }
+    deployment = SimpleNamespace(public_url="https://submission.example.com")
+
+    with patch.object(ScanRunner, "_await_live_surface_ready", new=AsyncMock(return_value=None)), patch.object(
+        ScanRunner,
+        "_resolve_live_security_target",
+        new=AsyncMock(return_value=("https://submission.example.com", "question")),
+    ), patch.object(
+        ScanRunner,
+        "_await_live_attack_readiness",
+        new=AsyncMock(side_effect=ProbeError("HTTP 405", status_code=405, target_url="https://submission.example.com")),
+    ):
+        result = await runner._run_live_attack_scan(
+            config=config,
+            source_review=source_review,
+            deployment=deployment,
+            event_callback=None,
+        )
+
+    assert result["status"] == "skipped"
+    assert result["usable"] is True
+    assert result["failure_reason"] is None
+    assert "No interactive text endpoint was discovered" in result["report"]["detail"]
 
 
 @pytest.mark.asyncio

@@ -89,6 +89,15 @@ _DOCS_OPENAPI_URL_RE = re.compile(
     r"""(?:openapiUrl|url)\s*[:=]\s*["'](?P<path>[^"']*openapi\.json[^"']*)["']""",
     re.IGNORECASE,
 )
+_INTERACTIVE_ROUTE_TOKENS = (
+    "/invoke",
+    "/api/v1/chat",
+    "/chat",
+    "/query",
+    "/search",
+    "/run",
+    "/predict",
+)
 
 
 @dataclass
@@ -449,7 +458,10 @@ class ScanRunner:
         event_callback: Callable[[dict[str, object]], Awaitable[None] | None] | None,
     ) -> dict[str, object]:
         generated_profile = self._generated_profile_from_phase(source_review)
-        await self._await_live_surface_ready(base_url=deployment.public_url)
+        await self._await_live_surface_ready(
+            base_url=deployment.public_url,
+            runtime_profile=generated_profile,
+        )
         target_url, request_field = self._resolve_security_target(deployment.public_url, generated_profile)
         target_url, request_field = await self._resolve_live_security_target(
             base_url=deployment.public_url,
@@ -482,7 +494,47 @@ class ScanRunner:
                 response_field=response_field,
                 attack_hints=attack_hints,
             )
-            await self._await_live_attack_readiness(agent_config=agent_config)
+            try:
+                await self._await_live_attack_readiness(agent_config=agent_config)
+            except ProbeError as exc:
+                if self._should_skip_live_attack_scan(
+                    runtime_profile=generated_profile,
+                    base_url=deployment.public_url,
+                    target_url=target_url,
+                ):
+                    detail = (
+                        "No interactive text endpoint was discovered; skipping the generic live "
+                        "attack scan and continuing with runtime integration checks."
+                    )
+                    await self._emit_event(
+                        event_callback,
+                        status="scanning",
+                        phase="live_attack_scan_skipped",
+                        detail=detail,
+                        event_type="scan.phase",
+                        payload={
+                            "target_url": target_url,
+                            "reason": "integration_only_agent",
+                            "probe_error": str(exc),
+                        },
+                    )
+                    return {
+                        "phase": "live_attack_scan",
+                        "status": "skipped",
+                        "usable": True,
+                        "error": None,
+                        "failure_reason": None,
+                        "report": {
+                            "phase": "live_attack_scan",
+                            "status": "skipped",
+                            "detail": detail,
+                            "target_url": target_url,
+                            "request_field": request_field,
+                            "response_field": response_field,
+                            "attack_hints": attack_hints,
+                        },
+                    }
+                raise
             scan_config = self._build_security_scan_config(source_review=source_review)
             scanner = Scanner(agent_config=agent_config, scan_config=scan_config)
             result = await asyncio.wait_for(scanner.run(), timeout=720)
@@ -1062,22 +1114,17 @@ class ScanRunner:
         self,
         *,
         base_url: str,
+        runtime_profile: GeneratedRuntimeProfile | None = None,
         timeout_seconds: float = 60.0,
         poll_seconds: float = 3.0,
     ) -> None:
-        normalized_base = base_url.rstrip("/")
-        candidates = (
-            normalized_base,
-            f"{normalized_base}/docs",
-            f"{normalized_base}/health",
-            f"{normalized_base}/healthz",
-        )
+        probes = self._build_live_surface_probes(base_url=base_url, runtime_profile=runtime_profile)
         deadline = time.monotonic() + timeout_seconds
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             while time.monotonic() < deadline:
-                for candidate in candidates:
+                for method, candidate in probes:
                     try:
-                        response = await client.get(candidate)
+                        response = await getattr(client, method.lower())(candidate)
                     except Exception:
                         continue
                     if response.status_code < 500:
@@ -1135,8 +1182,7 @@ class ScanRunner:
             if path.startswith("/")
             and path not in {"/", "/docs", "/openapi.json", "/health", "/healthz"}
         ]
-        preferred_tokens = ("/invoke", "/api/v1/chat", "/chat", "/query", "/search", "/run", "/predict")
-        for token in preferred_tokens:
+        for token in _INTERACTIVE_ROUTE_TOKENS:
             chosen = next((path for path in candidates if token in path.lower()), "")
             if not chosen:
                 continue
@@ -1368,6 +1414,73 @@ class ScanRunner:
             seen.add(item)
             unique.append(item)
         return unique
+
+    def _build_live_surface_probes(
+        self,
+        *,
+        base_url: str,
+        runtime_profile: GeneratedRuntimeProfile | None,
+    ) -> list[tuple[str, str]]:
+        normalized_base = base_url.rstrip("/")
+        generic_paths = ["", "/docs", "/health", "/healthz"]
+        paths = list(generic_paths)
+        integration_paths: set[str] = set()
+        if runtime_profile is not None:
+            for path in runtime_profile.probe_paths:
+                cleaned = str(path).strip()
+                if cleaned.startswith("/"):
+                    paths.append(cleaned)
+            for routes in runtime_profile.integration_routes.values():
+                for route in routes:
+                    cleaned = str(route).strip()
+                    if cleaned.startswith("/"):
+                        paths.append(cleaned)
+                        integration_paths.add(cleaned)
+
+        probes: list[tuple[str, str]] = []
+        for path in self._unique_preserving_order(paths):
+            url = normalized_base if not path else f"{normalized_base}{path}"
+            if path in integration_paths or self._looks_like_webhook_path(path):
+                probes.extend(
+                    [
+                        ("HEAD", url),
+                        ("OPTIONS", url),
+                        ("GET", url),
+                    ]
+                )
+            else:
+                probes.append(("GET", url))
+        return probes
+
+    @staticmethod
+    def _looks_like_webhook_path(path: str) -> bool:
+        lowered = path.lower()
+        return any(token in lowered for token in ("/webhook", "/webhooks", "/events"))
+
+    @staticmethod
+    def _has_interactive_probe_path(runtime_profile: GeneratedRuntimeProfile | None) -> bool:
+        if runtime_profile is None:
+            return False
+        for path in runtime_profile.probe_paths:
+            lowered = str(path).strip().lower()
+            if any(token in lowered for token in _INTERACTIVE_ROUTE_TOKENS):
+                return True
+        return False
+
+    def _should_skip_live_attack_scan(
+        self,
+        *,
+        runtime_profile: GeneratedRuntimeProfile | None,
+        base_url: str,
+        target_url: str,
+    ) -> bool:
+        if runtime_profile is None:
+            return False
+        if not runtime_profile.integration_routes:
+            return False
+        if self._has_interactive_probe_path(runtime_profile):
+            return False
+        return target_url.rstrip("/") == base_url.rstrip("/")
 
     def _bridge_security_findings(self, result: SecurityScanResult) -> list[TrustFinding]:
         findings: list[TrustFinding] = []

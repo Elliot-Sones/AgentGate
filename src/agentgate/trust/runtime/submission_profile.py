@@ -9,6 +9,7 @@ from pathlib import Path
 
 from agentgate.trust.config import DependencySpec
 from agentgate.trust.runtime.platform_integrations import (
+    SUPPORTED_PLATFORM_INTEGRATIONS,
     infer_platform_integrations,
     issue_platform_credentials,
     platform_allow_domains,
@@ -120,15 +121,15 @@ _PROBE_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 _INTEGRATION_ROUTE_HINTS: dict[str, tuple[tuple[re.Pattern[str], str], ...]] = {
     "slack": (
-        (re.compile(r"/slack/events\b", re.IGNORECASE), "/slack/events"),
         (re.compile(r"/api/slack/events\b", re.IGNORECASE), "/api/slack/events"),
+        (re.compile(r"/slack/events\b", re.IGNORECASE), "/slack/events"),
         (re.compile(r"/webhooks/slack\b", re.IGNORECASE), "/webhooks/slack"),
         (re.compile(r"/slack/commands?\b", re.IGNORECASE), "/slack/commands"),
         (re.compile(r"/slack/interactivity\b", re.IGNORECASE), "/slack/interactivity"),
     ),
     "shopify": (
-        (re.compile(r"/shopify/webhooks\b", re.IGNORECASE), "/shopify/webhooks"),
         (re.compile(r"/api/shopify/webhooks\b", re.IGNORECASE), "/api/shopify/webhooks"),
+        (re.compile(r"/shopify/webhooks\b", re.IGNORECASE), "/shopify/webhooks"),
         (re.compile(r"/webhooks/shopify\b", re.IGNORECASE), "/webhooks/shopify"),
         (re.compile(r"/shopify/orders\b", re.IGNORECASE), "/shopify/orders"),
     ),
@@ -726,6 +727,8 @@ def _infer_integration_routes(
                         if isinstance(route, str) and route.startswith("/") and route not in paths:
                             paths.append(route)
 
+        declared_count = len(paths)
+
         for text in texts:
             if not text:
                 continue
@@ -734,7 +737,9 @@ def _infer_integration_routes(
                     paths.append(route)
 
         if paths:
-            inferred[integration] = paths[:6]
+            declared_paths = paths[:declared_count]
+            inferred_paths = sorted(paths[declared_count:], key=lambda item: (-len(item), item))
+            inferred[integration] = [*declared_paths, *inferred_paths][:6]
 
     return inferred
 
@@ -770,10 +775,6 @@ _SKIP_ENV_PREFIXES = (
     "NEO4J_",
     "QDRANT_",
     "ELASTICSEARCH_",
-    "OPENAI_",
-    "ANTHROPIC_",
-    "SLACK_",
-    "SHOPIFY_",
     "AZURE_",
     "AWS_",
     "GCP_",
@@ -795,13 +796,21 @@ _SKIP_ENV_PREFIXES = (
     "NODE_ENV",
     "PORT",
 )
+_PLATFORM_ISSUED_ENV_NAMES = frozenset(
+    {
+        env_name
+        for spec in SUPPORTED_PLATFORM_INTEGRATIONS.values()
+        for env_name in (
+            tuple(spec.env_map.keys())
+            + tuple((spec.optional_platform_env or {}).keys())
+        )
+    }
+)
 
 _SKIP_ENV_EXACT = frozenset({
     "DEBUG",
     "TESTING",
     "CI",
-    "LOG_LEVEL",
-    "LOGGING_LEVEL",
     "VERBOSE",
     "WORKERS",
     "THREADS",
@@ -840,6 +849,8 @@ def _generate_sandbox_env(
     for name in sorted(detected):
         if name in already_provided:
             continue
+        if name in _PLATFORM_ISSUED_ENV_NAMES:
+            continue
         if any(name.startswith(prefix) for prefix in _SKIP_ENV_PREFIXES):
             continue
         if name in _SKIP_ENV_EXACT:
@@ -851,6 +862,9 @@ def _generate_sandbox_env(
 def _sandbox_value_for(name: str) -> str:
     """Generate a plausible sandbox value based on the env var name."""
     lower = name.lower()
+
+    if lower in {"log_level", "logging_level"}:
+        return "INFO"
 
     # Secret/key patterns → random token
     if any(hint in lower for hint in ("secret", "key", "token", "password", "passwd", "salt")):

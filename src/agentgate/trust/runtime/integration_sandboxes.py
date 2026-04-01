@@ -18,6 +18,10 @@ class IntegrationExerciseResult:
     integration: str
     ready: bool
     status: str = "skipped"  # passed | failed | skipped
+    verification_level: str = "none"  # none | callback_only | full
+    degraded_reason: str = ""
+    reply_verification_attempted: bool = False
+    reply_verified: bool = False
     route: str = ""
     target: str = ""
     summary: str = ""
@@ -31,6 +35,10 @@ class IntegrationExerciseResult:
             "integration": self.integration,
             "ready": self.ready,
             "status": self.status,
+            "verification_level": self.verification_level,
+            "degraded_reason": self.degraded_reason,
+            "reply_verification_attempted": self.reply_verification_attempted,
+            "reply_verified": self.reply_verified,
             "route": self.route,
             "target": self.target,
             "summary": self.summary,
@@ -39,6 +47,15 @@ class IntegrationExerciseResult:
             "external_checks": self.external_checks,
             "callback_status_code": self.callback_status_code,
         }
+
+
+@dataclass
+class SlackReplyVerificationContext:
+    available: bool
+    bot_user_id: str = ""
+    before_ts: str = ""
+    degraded_reason: str = ""
+    notes: list[str] = field(default_factory=list)
 
 
 def run_integration_sandbox_exercises(
@@ -125,9 +142,12 @@ def _exercise_slack(
     team_id = issued_env.get("SLACK_TEAM_ID", "").strip() or result.target
     app_id = issued_env.get("SLACK_APP_ID", "").strip() or "AAGENTGATE"
 
-    if not bot_token or not signing_secret:
+    if not signing_secret:
         result.status = "failed"
-        result.summary = "Slack sandbox was marked ready but the injected bot token or signing secret was missing."
+        result.summary = (
+            "Slack sandbox was marked ready but the injected signing secret was missing, "
+            "so AgentGate could not replay a signed Slack event."
+        )
         return result
 
     route = _choose_route(
@@ -142,13 +162,16 @@ def _exercise_slack(
         )
         return result
 
-    before_ts = ""
-    bot_user_id = ""
     try:
         with httpx.Client(timeout=max(min(timeout_seconds, 20), 5), follow_redirects=True) as client:
-            if channel_id:
-                bot_user_id = _slack_auth_test(client, bot_token)
-                before_ts = _slack_latest_channel_ts(client, bot_token, channel_id)
+            verification = _prepare_slack_reply_verification(
+                client=client,
+                bot_token=bot_token,
+                channel_id=channel_id,
+            )
+            if not verification.available:
+                result.degraded_reason = verification.degraded_reason
+                result.notes.extend(verification.notes)
             event_token = f"agentgate-slack-{uuid.uuid4().hex[:8]}"
             body = {
                 "token": "agentgate-sandbox",
@@ -183,6 +206,7 @@ def _exercise_slack(
             result.external_checks += 1
             if response.status_code >= 400:
                 result.status = "failed"
+                result.verification_level = "none"
                 result.summary = (
                     f"Slack sandbox event replay reached {route}, but the hosted agent returned "
                     f"HTTP {response.status_code}."
@@ -191,13 +215,14 @@ def _exercise_slack(
                 return result
 
             observed_reply = False
-            if channel_id:
+            if verification.available:
+                result.reply_verification_attempted = True
                 observed_reply = _poll_for_slack_reply(
                     client=client,
                     bot_token=bot_token,
                     channel_id=channel_id,
-                    oldest_ts=before_ts,
-                    bot_user_id=bot_user_id,
+                    oldest_ts=verification.before_ts,
+                    bot_user_id=verification.bot_user_id,
                     timeout_seconds=min(timeout_seconds, 12),
                     evidence=result.evidence,
                 )
@@ -205,27 +230,39 @@ def _exercise_slack(
 
             if observed_reply:
                 result.status = "passed"
+                result.verification_level = "full"
+                result.reply_verified = True
                 result.summary = (
                     "Slack sandbox event replay succeeded and a new Slack bot message was observed "
                     "after the hosted callback."
                 )
             else:
                 result.status = "passed"
-                result.summary = (
-                    "Slack sandbox event replay succeeded and the hosted agent acknowledged the "
-                    "callback, but no new Slack reply was observed in the configured sandbox channel."
-                )
-                if channel_id:
+                result.verification_level = "callback_only"
+                if verification.available:
+                    result.degraded_reason = "no_reply_observed"
+                    result.summary = (
+                        "Slack sandbox event replay succeeded and the hosted agent acknowledged the "
+                        "callback, but no new Slack reply was observed in the configured sandbox "
+                        "channel."
+                    )
                     result.notes.append(
                         "Slack callback path was live, but AgentGate did not observe a new bot reply in the sandbox channel."
                     )
                 else:
+                    if not result.degraded_reason:
+                        result.degraded_reason = "reply_verification_unavailable"
+                    result.summary = (
+                        "Slack sandbox event replay succeeded and the hosted agent acknowledged the "
+                        "callback, but reply verification was unavailable."
+                    )
                     result.notes.append(
-                        "Slack callback path was live, but no sandbox channel was configured for reply verification."
+                        "Slack callback path was live, but AgentGate could not verify a reply in Slack."
                     )
             return result
     except Exception as exc:
         result.status = "failed"
+        result.verification_level = "none"
         result.summary = f"Slack sandbox exercise failed: {exc}"
         return result
 
@@ -258,6 +295,7 @@ def _exercise_shopify(
 
     if not store_domain or not access_token or not webhook_secret:
         result.status = "failed"
+        result.verification_level = "none"
         result.summary = (
             "Shopify sandbox was marked ready but the store domain, access token, or webhook secret was missing."
         )
@@ -269,6 +307,7 @@ def _exercise_shopify(
     )
     if not route:
         result.status = "failed"
+        result.verification_level = "none"
         result.summary = (
             "Shopify integration was detected, but AgentGate could not infer a Shopify webhook route. "
             "Declare integration_routes.shopify in the manifest or expose a conventional Shopify path."
@@ -300,6 +339,7 @@ def _exercise_shopify(
             result.callback_status_code = response.status_code
             if response.status_code >= 400:
                 result.status = "failed"
+                result.verification_level = "none"
                 result.summary = (
                     f"Shopify sandbox webhook replay reached {route}, but the hosted agent returned "
                     f"HTTP {response.status_code}."
@@ -315,6 +355,7 @@ def _exercise_shopify(
             )
             result.external_checks += 1
             result.status = "passed"
+            result.verification_level = "full"
             result.summary = (
                 "Shopify sandbox product seeding succeeded and the hosted agent acknowledged the "
                 "Shopify webhook replay."
@@ -326,6 +367,7 @@ def _exercise_shopify(
             return result
     except Exception as exc:
         result.status = "failed"
+        result.verification_level = "none"
         result.summary = f"Shopify sandbox exercise failed: {exc}"
         return result
     finally:
@@ -375,6 +417,70 @@ def _slack_auth_test(client: httpx.Client, token: str) -> str:
     if response.status_code >= 400 or not data.get("ok"):
         raise RuntimeError(f"Slack auth.test failed: {data}")
     return str(data.get("user_id") or "")
+
+
+def _slack_join_channel(client: httpx.Client, token: str, channel_id: str) -> None:
+    response = client.post(
+        "https://slack.com/api/conversations.join",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"channel": channel_id},
+    )
+    data = response.json()
+    if response.status_code >= 400:
+        raise RuntimeError(f"Slack conversations.join failed: {data}")
+
+    if data.get("ok"):
+        return
+
+    error = str(data.get("error") or "").strip()
+    if error in {"already_in_channel", "method_not_supported_for_channel_type"}:
+        return
+
+    raise RuntimeError(f"Slack conversations.join failed: {data}")
+
+
+def _prepare_slack_reply_verification(
+    *,
+    client: httpx.Client,
+    bot_token: str,
+    channel_id: str,
+) -> SlackReplyVerificationContext:
+    if not channel_id:
+        return SlackReplyVerificationContext(
+            available=False,
+            degraded_reason="channel_not_configured",
+            notes=[
+                "No Slack sandbox channel was configured, so AgentGate skipped reply verification."
+            ],
+        )
+
+    if not bot_token:
+        return SlackReplyVerificationContext(
+            available=False,
+            degraded_reason="reply_verification_unavailable",
+            notes=[
+                "Slack callback replay can proceed, but reply verification was skipped because the bot token was unavailable."
+            ],
+        )
+
+    try:
+        bot_user_id = _slack_auth_test(client, bot_token)
+        _slack_join_channel(client, bot_token, channel_id)
+        before_ts = _slack_latest_channel_ts(client, bot_token, channel_id)
+        return SlackReplyVerificationContext(
+            available=True,
+            bot_user_id=bot_user_id,
+            before_ts=before_ts,
+        )
+    except Exception as exc:
+        return SlackReplyVerificationContext(
+            available=False,
+            degraded_reason="channel_verification_unavailable",
+            notes=[
+                "Slack callback replay can proceed, but reply verification was unavailable: "
+                f"{exc}"
+            ],
+        )
 
 
 def _slack_latest_channel_ts(client: httpx.Client, token: str, channel_id: str) -> str:

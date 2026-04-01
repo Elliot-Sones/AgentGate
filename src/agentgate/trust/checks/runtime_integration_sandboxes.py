@@ -77,7 +77,7 @@ class RuntimeIntegrationSandboxesCheck(BaseTrustCheck):
                     severity=TrustSeverity.INFO,
                     passed=True,
                     summary=result.summary,
-                    observed=" | ".join(result.evidence),
+                    observed=" | ".join(result.evidence or result.notes),
                 )
             ]
 

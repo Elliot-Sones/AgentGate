@@ -183,15 +183,20 @@ flowchart TD
 
 ## What We Found
 
-We tested AgentGate against 9 real agents — from popular open-source frameworks to purpose-built malicious agents.
+We tested AgentGate against 14 agents — from popular open-source frameworks to integration-specific fixtures to purpose-built malicious agents.
 
 | Agent | What it does | What we found | Verdict |
 |---|---|---|---|
+| **[agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)** | LangGraph + FastAPI agent framework | Full unified scan: **leaked system prompt** when asked, **provided shell commands** for reading /etc/passwd, crashed on XSS payload. 37 checks, 11 failed. | **BLOCK** |
 | **[Flowise](https://github.com/FlowiseAI/Flowise)** (47k stars) | No-code chatbot builder | Secretly connecting to outside servers without telling you, and containing phrases that could override agent instructions | **BLOCK** |
 | **[MetaGPT](https://github.com/FoundationAgents/MetaGPT)** (64k stars) | Multi-agent coding framework | Running arbitrary code on your system, executing shell commands, and making hidden internet requests | **MANUAL REVIEW** |
 | **[LangChain](https://github.com/langchain-ai/langchain)** (105k stars) | LLM application framework | 54 findings: dynamic imports via `importlib`, prompt override phrases in test fixtures, outbound HTTP calls, `eval()` usage | **MANUAL REVIEW** |
 | **[GPT Researcher](https://github.com/assafelovic/gpt-researcher)** (17k stars) | Autonomous research agent | Hidden instruction tokens, dynamic imports, outbound HTTP calls to search APIs, base64 decode usage | **MANUAL REVIEW** |
 | **[Lobe Chat](https://github.com/lobehub/lobe-chat)** (55k stars) | Chat agent platform | Static analysis flagged suspicious code patterns across the Node.js codebase | **MANUAL REVIEW** |
+| **[UpMortem/slack-bot](https://github.com/UpMortem/slack-bot)** | Public Slack bot | Slack sandbox integration exercise: signed event replay, webhook route discovery, bot reply verification | **Slack sandbox verified** |
+| Slack fixture (`/slack/events`) | Webhook-only Slack agent | Signed event callback accepted, sandbox channel reply observed | **Slack sandbox verified** |
+| Slack fixture (`/api/slack/events`) | Webhook-only Slack agent (alt route) | Alternate route discovered and exercised via signed event replay | **Slack sandbox verified** |
+| Shopify fixture (`/shopify/webhooks`) | Webhook-only Shopify agent | Test product created in dev store, signed webhook replayed, agent acknowledged | **Shopify sandbox verified** |
 | **[ShopFlow Support](https://github.com/Elliot-Sones/shopflow-support-agent)** | E-commerce customer support | Clean agent — no suspicious patterns, no hidden behavior, no undeclared network calls | **ALLOW CLEAN** |
 | Trojanized Support Bot | E-commerce customer support | Looks normal, but silently steals your API keys and passwords and sends them to an attacker | **CAUGHT** |
 | Stealth Exfil Bot | Same support bot, but sneakier | Does the same theft but hides all evidence and only activates when it thinks nobody is watching | **CAUGHT** |
@@ -199,12 +204,12 @@ We tested AgentGate against 9 real agents — from popular open-source framework
 
 ### Results at a glance
 
-- **9 agents tested**
+- **14 agents tested** across the full unified pipeline
 - **150+ security findings surfaced**
 - **14 critical-severity issues** in Flowise alone
 - **100% detection rate** on intentionally malicious agents
-- **0 false positives**
-- **12 security vectors** checked per scan
+- **12 security vectors** + **6 adaptive specialists** per scan
+- **Slack and Shopify sandbox integration** verified across 4 agents
 
 ---
 
@@ -247,6 +252,92 @@ We tested AgentGate against 9 real agents — from popular open-source framework
 | Data boundary | Tests cross-tenant and cross-session data isolation |
 | Behavior consistency | Checks if the agent behaves differently across runs |
 | Memory poisoning | Tests if state can be mutated between sessions |
+
+---
+
+## Platform Sandbox Testing
+
+AgentGate doesn't just probe the agent's API — it tests real integrations by connecting the agent to sandbox environments with fake data. The agent talks to real APIs, but nothing it does can cause real damage.
+
+### Slack Sandbox
+
+When AgentGate detects a Slack integration in the agent's source code (`slack_sdk`, `SLACK_BOT_TOKEN`, `/slack/events` routes), it:
+
+1. **Injects sandbox credentials** — a real Slack bot token, signing secret, and channel ID pointing at a disposable workspace with only fake data
+2. **Replays a signed Slack event** — constructs an `app_mention` event, signs it with `X-Slack-Signature` using the sandbox signing secret, and sends it to the agent's webhook route
+3. **Verifies the agent's response** — polls the sandbox Slack channel for a new bot reply after the event replay
+4. **Reports verification level**:
+   - `full` — event callback accepted AND bot reply observed in sandbox channel
+   - `callback_only` — event accepted but no reply seen (agent may process asynchronously)
+   - `none` — event rejected or agent crashed
+
+Route discovery checks `/slack/events`, `/api/slack/events`, and `/webhooks/slack` in order.
+
+### Shopify Sandbox
+
+When AgentGate detects a Shopify integration (`SHOPIFY_ACCESS_TOKEN`, `myshopify.com`, `/shopify/webhooks` routes), it:
+
+1. **Injects sandbox credentials** — a real Shopify access token and API secret pointing at a dev store with only test data
+2. **Creates a test product** — uses the Shopify Admin API to create a draft product in the dev store
+3. **Replays a signed webhook** — sends a `products/create` webhook to the agent, signed with `X-Shopify-Hmac-Sha256`
+4. **Verifies the agent acknowledged** — checks the HTTP response status
+5. **Cleans up** — deletes the test product from the dev store after the exercise
+
+Route discovery checks `/shopify/webhooks`, `/api/shopify/webhooks`, and `/webhooks/shopify`.
+
+### Required Environment Variables
+
+Set these on the worker to enable sandbox testing:
+
+| Variable | Purpose |
+|---|---|
+| `AGENTGATE_PLATFORM_SLACK_BOT_TOKEN` | Bot token for the sandbox Slack workspace |
+| `AGENTGATE_PLATFORM_SLACK_SIGNING_SECRET` | Signing secret for event verification |
+| `AGENTGATE_PLATFORM_SLACK_CHANNEL_ID` | Channel to monitor for bot replies |
+| `AGENTGATE_PLATFORM_SHOPIFY_ACCESS_TOKEN` | Admin API token for the dev store |
+| `AGENTGATE_PLATFORM_SHOPIFY_API_SECRET` | Webhook signing secret |
+| `AGENTGATE_PLATFORM_SHOPIFY_STORE_DOMAIN` | `your-store.myshopify.com` |
+
+Without these, sandbox exercises are skipped — the scan still runs but reports `status: skipped` for those integrations.
+
+---
+
+## What the Agent Gets
+
+When AgentGate deploys an agent to the sandbox, it provides real infrastructure the agent can use:
+
+### Platform Credentials (injected if detected in source)
+
+| Integration | What's injected | What it connects to |
+|---|---|---|
+| **OpenAI** | `OPENAI_API_KEY` | Real OpenAI API (so the agent can respond to probes) |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Real Anthropic API |
+| **Slack** | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, channel/team IDs | Disposable sandbox workspace with fake data |
+| **Shopify** | `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_SECRET`, `SHOPIFY_STORE_DOMAIN` | Dev store with test products only |
+
+### Backing Services (provisioned automatically from dependency detection)
+
+| Service | How detected | What the agent gets |
+|---|---|---|
+| **Postgres** | `asyncpg`, `psycopg`, `sqlalchemy`, `DATABASE_URL` in source | A real Postgres instance on Railway with `DATABASE_URL` injected |
+| **Redis** | `redis`, `aioredis`, `REDIS_URL` in source | A real Redis instance with `REDIS_URL` injected |
+| **pgvector** | `pgvector` in dependencies | Postgres with vector extension enabled |
+| **Neo4j** | `neo4j`, `NEO4J_URI` in source | A Neo4j instance with `NEO4J_URI` injected |
+| **Elasticsearch** | `elasticsearch` in dependencies | An Elasticsearch instance with `ELASTICSEARCH_URL` injected |
+| **MySQL** | `mysql`, `pymysql` in dependencies | A MySQL instance with `MYSQL_HOST` injected |
+| **Qdrant** | `qdrant-client` in dependencies | A Qdrant instance with `QDRANT_URL` injected |
+
+### Auto-Detected Environment Variables
+
+AgentGate scans the agent's source for `os.getenv()` and `os.environ` calls. Any env var the agent needs that isn't already provided by platform credentials or backing services gets a **safe sandbox value generated automatically**:
+
+- Secret/key/token/password patterns get random tokens
+- URL/endpoint patterns get `http://localhost:8000`
+- Email patterns get `sandbox@agentgate.local`
+- Boolean patterns get `true`
+- Everything else gets a random safe string
+
+This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or other custom env vars start up without manual configuration.
 
 ---
 
@@ -326,9 +417,12 @@ Open `dashboard.html` in a browser for a visual scan experience with real-time p
 - **Deep health check** — probes Postgres and Redis, returns 503 if either is down
 - **Typed failure reasons** — `auth_required`, `endpoint_not_found`, `deployment_unusable`, `boot_timeout`, `deployment_failed`
 - **Human-readable failure explanations** — every failure includes a title, description, and actionable next step
+- **Coverage reporting** — `coverage_status` (full/partial/limited) and `coverage_recommendation` on every response and webhook
+- **Auto env var detection** — scans source code for `os.getenv()` calls and generates sandbox values for missing env vars so agents can start
 - **Webhook delivery** with HMAC-SHA256 signing and DNS-resolution SSRF guard
 - **SSE event streaming** with resumable cursors via `Last-Event-ID`
 - **Idempotency keys** for exactly-once scan creation
+- **Railway pool mode** — reuses a single Railway project for all scans instead of creating ephemeral projects
 
 ### Self-hosting
 
@@ -365,7 +459,24 @@ Or deploy via Docker on Railway:
 
 Required env vars: `DATABASE_URL`, `REDIS_URL`
 
-Optional: `AGENTGATE_WEBHOOK_SECRET`, `AGENTGATE_CORS_ORIGINS`, `AGENTGATE_ADAPTIVE_TRUST`, `ANTHROPIC_API_KEY`
+Railway pool mode (reuses a single project instead of creating one per scan):
+
+```
+AGENTGATE_RAILWAY_POOL_PROJECT_ID=<your-project-id>
+AGENTGATE_RAILWAY_POOL_ENVIRONMENT=production
+AGENTGATE_RAILWAY_POOL_SERVICE=submission-agent
+```
+
+Platform credentials (injected into deployed agents so they can respond to probes):
+
+```
+AGENTGATE_PLATFORM_OPENAI_API_KEY=sk-...       # For agents that use OpenAI
+AGENTGATE_PLATFORM_ANTHROPIC_API_KEY=sk-ant-... # For agents that use Anthropic
+AGENTGATE_PLATFORM_SLACK_BOT_TOKEN=xoxb-...     # For Slack bot testing
+AGENTGATE_PLATFORM_SHOPIFY_ACCESS_TOKEN=shpat_  # For Shopify app testing
+```
+
+Other optional: `AGENTGATE_WEBHOOK_SECRET`, `AGENTGATE_CORS_ORIGINS`, `AGENTGATE_ADAPTIVE_TRUST`, `ANTHROPIC_API_KEY` (for AgentGate's own specialist LLM calls)
 
 </details>
 
@@ -401,12 +512,17 @@ agentgate/
   worker/            # arq background worker (Dockerfile.worker)
     tasks.py         # Scan job orchestration
   services/
-    scan_runner.py   # Clone → deploy → probe → verdict pipeline
+    scan_runner.py   # Unified pipeline: source review → deploy → live attack → adaptive review → merge
   trust/
     scanner.py       # Trust check orchestration
     checks/          # 11 trust checks (5 static + 6 runtime)
     runtime/         # Railway executor, adaptive specialists
     policy.py        # Verdict policy engine
+    file_classifier.py  # Classify files as test/runtime/docs/vendored
+    reachability.py     # Import graph walker from Docker entrypoint
+    normalizer.py       # Severity adjustment based on file/reachability context
+    signals.py          # TrustSignal and SignalContext models
+    destination_taxonomy.py  # Egress destination classification
   detectors/         # 12 security detectors
   scanner.py         # Security scan orchestrator
 dashboard.html       # Browser-based scan UI (no build step)
@@ -449,7 +565,7 @@ agentgate trust-scan --url $URL --fail-on block --format sarif
 
 ## Known Limitations
 
-- **Canary detection is deterministic but bounded.** AgentGate now decodes common reversible obfuscations such as base64, hex, URL encoding, char-splitting, and selected Unicode confusables before matching canary values. Custom or more complex obfuscation may still require manual review or adaptive specialist analysis.
+- **Canary detection handles common obfuscation.** AgentGate decodes base64, hex, URL encoding, char-splitting, and Unicode confusables (Cyrillic → Latin) before matching canary values. Novel or multi-layered obfuscation may still require adaptive specialist analysis.
 - **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
 - **Deploy timeout.** Large repos with heavy Docker builds may time out during sandbox deployment. A future release will add support for scanning pre-deployed agents via a hosted URL parameter.
 - **Python agents only.** The current runtime supports Python HTTP agents. Other runtimes (Node.js, Go) are architecturally supported but not yet implemented.
@@ -470,7 +586,7 @@ agentgate trust-scan --url $URL --fail-on block --format sarif
 
 ```bash
 pip install -e ".[dev,server]"
-uv run pytest tests/ -x -q       # 538 tests
+uv run pytest tests/ -x -q       # 494 tests
 uv run ruff check src/
 ```
 
@@ -482,3 +598,5 @@ uv run ruff check src/
 - [`docs/trust_benchmarking.md`](docs/trust_benchmarking.md) — benchmark harness and results
 - [`docs/ci_integration.md`](docs/ci_integration.md) — CI/CD integration guide
 - [`docs/owasp_coverage.md`](docs/owasp_coverage.md) — OWASP LLM Top 10 coverage mapping
+- [`docs/superpowers/specs/2026-03-26-hosted-api-design.md`](docs/superpowers/specs/2026-03-26-hosted-api-design.md) — hosted API architecture
+- [`docs/superpowers/specs/2026-03-29-finding-interpretation-design.md`](docs/superpowers/specs/2026-03-29-finding-interpretation-design.md) — finding interpretation and confidence-aware verdicts (approved spec)

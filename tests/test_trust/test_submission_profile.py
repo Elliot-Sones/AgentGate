@@ -354,6 +354,114 @@ def test_submission_profile_records_slack_and_shopify_sandbox_status(tmp_path: P
     assert profile.integration_routes["shopify"] == ["/shopify/webhooks"]
 
 
+def test_submission_profile_generates_log_level_when_required(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
+    (tmp_path / "app.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                'LOG_LEVEL = os.environ[\"LOG_LEVEL\"]',
+                "print(LOG_LEVEL)",
+            ]
+        )
+    )
+
+    assessment, profile = build_submission_profile(
+        source_dir=tmp_path,
+        manifest=None,
+        dependencies=[],
+        runtime_env={"PORT": "8000"},
+        enforce_production_contract=False,
+    )
+
+    assert assessment.supported is True
+    assert profile.issued_runtime_env["LOG_LEVEL"] == "INFO"
+
+
+def test_submission_profile_generates_non_platform_slack_env_vars(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
+    (tmp_path / "app.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                "import slack_sdk",
+                'SLACK_BOT_TOKEN = os.environ[\"SLACK_BOT_TOKEN\"]',
+                'SLACK_USER_ID = os.environ[\"SLACK_USER_ID\"]',
+                "print(SLACK_BOT_TOKEN, SLACK_USER_ID)",
+            ]
+        )
+    )
+
+    with patch.dict(
+        "os.environ",
+        {
+            "AGENTGATE_PLATFORM_SLACK_BOT_TOKEN": "xoxb-test",
+            "AGENTGATE_PLATFORM_SLACK_SIGNING_SECRET": "secret-test",
+        },
+        clear=False,
+    ):
+        assessment, profile = build_submission_profile(
+            source_dir=tmp_path,
+            manifest=None,
+            dependencies=[],
+            runtime_env={"PORT": "8000"},
+            enforce_production_contract=False,
+        )
+
+    assert assessment.supported is True
+    assert profile.issued_integrations == ["slack"]
+    assert profile.issued_runtime_env["SLACK_BOT_TOKEN"] == "xoxb-test"
+    assert profile.issued_runtime_env["SLACK_USER_ID"].startswith("agentgate-")
+
+
+def test_submission_profile_prefers_more_specific_api_integration_routes(tmp_path: Path) -> None:
+    (tmp_path / "Dockerfile").write_text(
+        'FROM python:3.11\nEXPOSE 8000\nCMD ["python", "app.py"]\n'
+    )
+    (tmp_path / "app.py").write_text(
+        "\n".join(
+            [
+                "import os",
+                "from flask import Flask",
+                "app = Flask(__name__)",
+                'SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")',
+                'SHOPIFY_STORE_DOMAIN = os.environ.get("SHOPIFY_STORE_DOMAIN", "")',
+                '@app.post("/api/slack/events")',
+                'def slack_events(): return {"ok": True}',
+                '@app.post("/api/shopify/webhooks")',
+                'def shopify_webhooks(): return {"ok": True}',
+                'print("/api/slack/events")',
+                'print("/api/shopify/webhooks")',
+            ]
+        )
+    )
+
+    with patch.dict(
+        "os.environ",
+        {
+            "AGENTGATE_PLATFORM_SLACK_BOT_TOKEN": "xoxb-test",
+            "AGENTGATE_PLATFORM_SHOPIFY_ACCESS_TOKEN": "shpat_test",
+            "AGENTGATE_PLATFORM_SHOPIFY_STORE_DOMAIN": "agentgate-dev.myshopify.com",
+        },
+        clear=False,
+    ):
+        assessment, profile = build_submission_profile(
+            source_dir=tmp_path,
+            manifest={"integrations": ["slack", "shopify"]},
+            dependencies=[],
+            runtime_env={"PORT": "8000"},
+            enforce_production_contract=True,
+        )
+
+    assert assessment.supported is True
+    assert profile.integration_routes["slack"][0] == "/api/slack/events"
+    assert profile.integration_routes["shopify"][0] == "/api/shopify/webhooks"
+
+
 def test_submission_profile_ignores_dependency_names_in_manifest_integrations(
     tmp_path: Path,
 ) -> None:
