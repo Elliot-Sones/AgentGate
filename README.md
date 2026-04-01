@@ -23,24 +23,15 @@ One API call to scan any agent. Real-time results. Typed verdicts.
 
 ---
 
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [What We Found](#what-we-found)
-- [How It Works](#how-it-works)
-- [What the Agent Gets](#what-the-agent-gets)
-- [Security Checks](#security-checks)
-- [Cost per Scan](#cost-per-scan)
-- [Verdicts](#verdicts)
-- [Trust Manifest](#trust-manifest)
-- [Self-Hosting](#self-hosting)
-- [Architecture](#architecture)
-- [How It Works — Deep Dive](#how-it-works--deep-dive)
-- [CLI](#cli)
-- [CI/CD Integration](#cicd-integration)
-- [Known Limitations](#known-limitations)
-- [Development](#development)
-- [Docs](#docs)
+| | |
+|---|---|
+| [Quick Start](#quick-start) | Try it in 30 seconds — one curl command |
+| [Results](#what-we-found) | 14 agents tested, 150+ findings, 100% malware detection |
+| [How It Works](#how-it-works) | 5-stage pipeline: source review → deploy → attack → adapt → verdict |
+| [Sandbox Infrastructure](#what-the-agent-gets) | What every agent gets: LLM keys, Slack/Shopify sandboxes, databases, auto-detected env vars |
+| [Security Checks](#security-checks) | 12 detectors, 6 adaptive specialists, 5 static analyzers |
+| [Deployment & Configuration](#self-hosting) | Self-hosting, env vars, Railway pool, CLI, CI/CD |
+| [Reference](#architecture) | Architecture, API features, known limitations, docs |
 
 ---
 
@@ -210,9 +201,7 @@ This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or o
 | Behavior consistency | Checks if the agent behaves differently across runs |
 | Memory poisoning | Tests if state can be mutated between sessions |
 
----
-
-## Cost per Scan
+### Cost per scan
 
 | Component | Cost |
 |---|---|
@@ -222,9 +211,7 @@ This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or o
 
 Disable adaptive specialists for $0.00/scan (static + live probes only, zero LLM cost).
 
----
-
-## Verdicts
+### Verdicts
 
 | Verdict | What happens | When |
 |---|---|---|
@@ -243,29 +230,17 @@ Disable adaptive specialists for $0.00/scan (static + live probes only, zero LLM
 | `boot_timeout` | Agent never became reachable | Ensure it binds to PORT and starts an HTTP server |
 | `deployment_failed` | Docker build failed | Provide a working Dockerfile |
 
----
+### Trust manifest (optional)
 
-## Trust Manifest
-
-Every agent can ship with a `trust_manifest.yaml` that declares what it does. AgentGate compares this against actual runtime behavior. The manifest is optional — without it, AgentGate infers everything from source and runtime.
+Agents can ship a `trust_manifest.yaml` declaring what they do. AgentGate compares it against runtime behavior. Without one, everything is inferred from source.
 
 ```yaml
-submission_id: my-agent-v1
 agent_name: My Support Agent
 version: "1.0.0"
 entrypoint: server.py
-description: Customer support agent for order lookups
-
-declared_tools:
-  - lookup_order
-  - search_products
-  - check_return_policy
-
+declared_tools: [lookup_order, search_products, check_return_policy]
 declared_external_domains: []
-
-permissions:
-  - read_orders
-  - read_products
+permissions: [read_orders, read_products]
 ```
 
 ---
@@ -483,38 +458,27 @@ flowchart TD
 
 ---
 
-## CLI
+## Deployment & Configuration
 
-The CLI can run scans directly without the hosted API:
+### CLI (alternative to hosted API)
 
 ```bash
 pip install -e .
 
 # Trust scan against a live agent
-agentgate trust-scan \
-  --url https://my-agent.example.com \
-  --source-dir ./src \
-  --manifest ./trust_manifest.yaml \
-  --format all
+agentgate trust-scan --url https://my-agent.example.com --source-dir ./src --format all
 
 # Red team security test
 agentgate scan http://localhost:8000/api --name "My Agent" --format all
 ```
 
----
-
-## CI/CD Integration
-
-Use the API in your CI pipeline to gate agent deployments:
+### CI/CD integration
 
 ```bash
-# Submit scan and wait for result
 SCAN_ID=$(curl -s -X POST https://your-api/v1/scans \
-  -H "X-API-Key: $AGENTGATE_KEY" \
-  -H "Content-Type: application/json" \
+  -H "X-API-Key: $AGENTGATE_KEY" -H "Content-Type: application/json" \
   -d "{\"repo_url\": \"$REPO_URL\"}" | jq -r '.id')
 
-# Poll until complete
 while true; do
   STATUS=$(curl -s -H "X-API-Key: $AGENTGATE_KEY" \
     https://your-api/v1/scans/$SCAN_ID | jq -r '.status')
@@ -522,40 +486,24 @@ while true; do
   sleep 5
 done
 
-# Check verdict
 VERDICT=$(curl -s -H "X-API-Key: $AGENTGATE_KEY" \
   https://your-api/v1/scans/$SCAN_ID | jq -r '.verdict')
 [ "$VERDICT" = "block" ] && exit 1
 ```
 
-The CLI also supports SARIF output for GitHub Advanced Security:
+SARIF output for GitHub Advanced Security: `agentgate trust-scan --url $URL --fail-on block --format sarif`
 
-```bash
-agentgate trust-scan --url $URL --fail-on block --format sarif
-```
+### Requirements
 
----
+Python 3.11+ | Postgres + Redis for the hosted API | Railway account for sandbox deployment | cosign (optional) for image signatures | Anthropic API key (optional) for adaptive specialists
 
-## Known Limitations
+### Known limitations
 
-- **Canary detection handles common obfuscation.** AgentGate decodes base64, hex, URL encoding, char-splitting, and Unicode confusables (Cyrillic to Latin) before matching canary values. Novel or multi-layered obfuscation may still require adaptive specialist analysis.
-- **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
-- **Deploy timeout.** Large repos with heavy Docker builds may time out during sandbox deployment. A future release will add support for scanning pre-deployed agents via a hosted URL parameter.
-- **Python agents only.** The current runtime supports Python HTTP agents. Other runtimes (Node.js, Go) are architecturally supported but not yet implemented.
+- **Python agents only.** Node.js and Go are architecturally supported but not yet implemented.
+- **Static analysis is regex-based.** Catches `exec()` and `requests.post()` but not obfuscated equivalents — that's what runtime checks are for.
+- **Deploy timeout.** Large repos with heavy Docker builds may time out during sandbox deployment.
 
----
-
-## Requirements
-
-- **Python 3.11+**
-- **Postgres + Redis** for the hosted API
-- **Railway account** for sandbox agent deployment (worker)
-- **cosign** (optional) for image signature verification
-- **Anthropic API key** (optional) for adaptive specialists and LLM-generated attacks
-
----
-
-## Development
+### Development
 
 ```bash
 pip install -e ".[dev,server]"
@@ -563,13 +511,11 @@ uv run pytest tests/ -x -q       # 494 tests
 uv run ruff check src/
 ```
 
----
-
-## Docs
+### Docs
 
 - [`docs/promptshop_engineering_brief.md`](docs/promptshop_engineering_brief.md) — engineering architecture brief
 - [`docs/trust_benchmarking.md`](docs/trust_benchmarking.md) — benchmark harness and results
 - [`docs/ci_integration.md`](docs/ci_integration.md) — CI/CD integration guide
 - [`docs/owasp_coverage.md`](docs/owasp_coverage.md) — OWASP LLM Top 10 coverage mapping
 - [`docs/superpowers/specs/2026-03-26-hosted-api-design.md`](docs/superpowers/specs/2026-03-26-hosted-api-design.md) — hosted API architecture
-- [`docs/superpowers/specs/2026-03-29-finding-interpretation-design.md`](docs/superpowers/specs/2026-03-29-finding-interpretation-design.md) — finding interpretation and confidence-aware verdicts (approved spec)
+- [`docs/superpowers/specs/2026-03-29-finding-interpretation-design.md`](docs/superpowers/specs/2026-03-29-finding-interpretation-design.md) — finding interpretation and confidence-aware verdicts
