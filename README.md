@@ -255,81 +255,40 @@ We tested AgentGate against 14 agents — from popular open-source frameworks to
 
 ---
 
-## Platform Sandbox Testing
-
-AgentGate doesn't just probe the agent's API — it tests real integrations by connecting the agent to sandbox environments with fake data. The agent talks to real APIs, but nothing it does can cause real damage.
-
-### Slack Sandbox
-
-When AgentGate detects a Slack integration in the agent's source code (`slack_sdk`, `SLACK_BOT_TOKEN`, `/slack/events` routes), it:
-
-1. **Injects sandbox credentials** — a real Slack bot token, signing secret, and channel ID pointing at a disposable workspace with only fake data
-2. **Replays a signed Slack event** — constructs an `app_mention` event, signs it with `X-Slack-Signature` using the sandbox signing secret, and sends it to the agent's webhook route
-3. **Verifies the agent's response** — polls the sandbox Slack channel for a new bot reply after the event replay
-4. **Reports verification level**:
-   - `full` — event callback accepted AND bot reply observed in sandbox channel
-   - `callback_only` — event accepted but no reply seen (agent may process asynchronously)
-   - `none` — event rejected or agent crashed
-
-Route discovery checks `/slack/events`, `/api/slack/events`, and `/webhooks/slack` in order.
-
-### Shopify Sandbox
-
-When AgentGate detects a Shopify integration (`SHOPIFY_ACCESS_TOKEN`, `myshopify.com`, `/shopify/webhooks` routes), it:
-
-1. **Injects sandbox credentials** — a real Shopify access token and API secret pointing at a dev store with only test data
-2. **Creates a test product** — uses the Shopify Admin API to create a draft product in the dev store
-3. **Replays a signed webhook** — sends a `products/create` webhook to the agent, signed with `X-Shopify-Hmac-Sha256`
-4. **Verifies the agent acknowledged** — checks the HTTP response status
-5. **Cleans up** — deletes the test product from the dev store after the exercise
-
-Route discovery checks `/shopify/webhooks`, `/api/shopify/webhooks`, and `/webhooks/shopify`.
-
-### Required Environment Variables
-
-Set these on the worker to enable sandbox testing:
-
-| Variable | Purpose |
-|---|---|
-| `AGENTGATE_PLATFORM_SLACK_BOT_TOKEN` | Bot token for the sandbox Slack workspace |
-| `AGENTGATE_PLATFORM_SLACK_SIGNING_SECRET` | Signing secret for event verification |
-| `AGENTGATE_PLATFORM_SLACK_CHANNEL_ID` | Channel to monitor for bot replies |
-| `AGENTGATE_PLATFORM_SHOPIFY_ACCESS_TOKEN` | Admin API token for the dev store |
-| `AGENTGATE_PLATFORM_SHOPIFY_API_SECRET` | Webhook signing secret |
-| `AGENTGATE_PLATFORM_SHOPIFY_STORE_DOMAIN` | `your-store.myshopify.com` |
-
-Without these, sandbox exercises are skipped — the scan still runs but reports `status: skipped` for those integrations.
-
----
-
 ## What the Agent Gets
 
-When AgentGate deploys an agent to the sandbox, it provides real infrastructure the agent can use:
+When AgentGate deploys an agent to the sandbox, it provides real infrastructure so the agent can actually run. Everything is detected automatically from the source code — no manifest required.
 
-### Platform Credentials (injected if detected in source)
+### Platform Integrations
 
-| Integration | What's injected | What it connects to |
+| Integration | What's injected | What happens during the scan |
 |---|---|---|
-| **OpenAI** | `OPENAI_API_KEY` | Real OpenAI API (so the agent can respond to probes) |
-| **Anthropic** | `ANTHROPIC_API_KEY` | Real Anthropic API |
-| **Slack** | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, channel/team IDs | Disposable sandbox workspace with fake data |
-| **Shopify** | `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_SECRET`, `SHOPIFY_STORE_DOMAIN` | Dev store with test products only |
+| **OpenAI** | `OPENAI_API_KEY` | Agent can respond to live attack probes via real OpenAI API |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Agent can respond to live attack probes via real Anthropic API |
+| **Slack** | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, channel/team IDs | AgentGate replays signed Slack events to the agent's webhook route, then polls the sandbox channel for bot replies. Verification levels: `full` (reply observed), `callback_only` (accepted but no reply), `none` (rejected) |
+| **Shopify** | `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_SECRET`, `SHOPIFY_STORE_DOMAIN` | AgentGate creates a test product in the dev store, sends a signed `products/create` webhook to the agent, verifies acknowledgment, then deletes the test product |
 
-### Backing Services (provisioned automatically from dependency detection)
+Slack route discovery checks `/slack/events`, `/api/slack/events`, `/webhooks/slack`. Shopify checks `/shopify/webhooks`, `/api/shopify/webhooks`, `/webhooks/shopify`.
+
+All sandbox environments contain only fake data. The agent talks to real APIs but cannot cause real damage.
+
+### Backing Services
+
+Provisioned automatically when detected in the agent's dependencies:
 
 | Service | How detected | What the agent gets |
 |---|---|---|
-| **Postgres** | `asyncpg`, `psycopg`, `sqlalchemy`, `DATABASE_URL` in source | A real Postgres instance on Railway with `DATABASE_URL` injected |
-| **Redis** | `redis`, `aioredis`, `REDIS_URL` in source | A real Redis instance with `REDIS_URL` injected |
+| **Postgres** | `asyncpg`, `psycopg`, `sqlalchemy`, `DATABASE_URL` in source | Real Postgres instance with `DATABASE_URL` injected |
+| **Redis** | `redis`, `aioredis`, `REDIS_URL` in source | Real Redis instance with `REDIS_URL` injected |
 | **pgvector** | `pgvector` in dependencies | Postgres with vector extension enabled |
-| **Neo4j** | `neo4j`, `NEO4J_URI` in source | A Neo4j instance with `NEO4J_URI` injected |
-| **Elasticsearch** | `elasticsearch` in dependencies | An Elasticsearch instance with `ELASTICSEARCH_URL` injected |
-| **MySQL** | `mysql`, `pymysql` in dependencies | A MySQL instance with `MYSQL_HOST` injected |
-| **Qdrant** | `qdrant-client` in dependencies | A Qdrant instance with `QDRANT_URL` injected |
+| **Neo4j** | `neo4j`, `NEO4J_URI` in source | Neo4j instance with `NEO4J_URI` injected |
+| **Elasticsearch** | `elasticsearch` in dependencies | Elasticsearch instance with `ELASTICSEARCH_URL` injected |
+| **MySQL** | `mysql`, `pymysql` in dependencies | MySQL instance with `MYSQL_HOST` injected |
+| **Qdrant** | `qdrant-client` in dependencies | Qdrant instance with `QDRANT_URL` injected |
 
 ### Auto-Detected Environment Variables
 
-AgentGate scans the agent's source for `os.getenv()` and `os.environ` calls. Any env var the agent needs that isn't already provided by platform credentials or backing services gets a **safe sandbox value generated automatically**:
+AgentGate scans the agent's source for `os.getenv()` and `os.environ` calls. Any env var the agent needs that isn't already covered gets a safe sandbox value generated automatically:
 
 - Secret/key/token/password patterns get random tokens
 - URL/endpoint patterns get `http://localhost:8000`
@@ -337,7 +296,7 @@ AgentGate scans the agent's source for `os.getenv()` and `os.environ` calls. Any
 - Boolean patterns get `true`
 - Everything else gets a random safe string
 
-This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or other custom env vars start up without manual configuration.
+This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or other custom config start up without manual configuration.
 
 ---
 
