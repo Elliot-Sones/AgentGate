@@ -23,19 +23,352 @@ One API call to scan any agent. Real-time results. Typed verdicts.
 
 ---
 
-## Live Demo
+## Table of Contents
 
-One `POST /v1/scans` triggers the full pipeline: clone, static analysis, deploy, live attack probes, verdict.
+- [Quick Start](#quick-start)
+- [What We Found](#what-we-found)
+- [How It Works](#how-it-works)
+- [What the Agent Gets](#what-the-agent-gets)
+- [Security Checks](#security-checks)
+- [Cost per Scan](#cost-per-scan)
+- [Verdicts](#verdicts)
+- [Trust Manifest](#trust-manifest)
+- [Self-Hosting](#self-hosting)
+- [Architecture](#architecture)
+- [How It Works — Deep Dive](#how-it-works--deep-dive)
+- [CLI](#cli)
+- [CI/CD Integration](#cicd-integration)
+- [Known Limitations](#known-limitations)
+- [Development](#development)
+- [Docs](#docs)
 
-<div align="center">
-<img src="assets/scan-demo.gif" alt="AgentGate scanning a live agent in real-time" width="720">
-</div>
+---
+
+## Quick Start
+
+### 1. Submit a scan
+
+```bash
+curl -X POST https://agentgate-production-feed.up.railway.app/v1/scans \
+  -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
+  -H "Content-Type: application/json" \
+  -d '{"repo_url": "https://github.com/owner/agent"}'
+```
+
+That's it. One call. AgentGate clones the repo, analyzes the source, deploys the agent to a sandbox, runs 12 security detectors against it, and returns a verdict.
+
+### 2. Watch it in real-time
+
+```bash
+curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
+  "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/events?stream=true"
+```
+
+### 3. Get the report
+
+```bash
+curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
+  "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/report"
+```
+
+### Dashboard
+
+Open `dashboard.html` in a browser for a visual scan experience with real-time progress, verdict display, and findings breakdown.
+
+---
+
+## What We Found
+
+We tested AgentGate against 14 agents — from popular open-source frameworks to integration-specific fixtures to purpose-built malicious agents.
+
+| Agent | What it does | What we found | Verdict |
+|---|---|---|---|
+| **[agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)** | LangGraph + FastAPI agent framework | Full unified scan: **leaked system prompt** when asked, **provided shell commands** for reading /etc/passwd, crashed on XSS payload. 37 checks, 11 failed. | **BLOCK** |
+| **[Flowise](https://github.com/FlowiseAI/Flowise)** (47k stars) | No-code chatbot builder | Secretly connecting to outside servers without telling you, and containing phrases that could override agent instructions | **BLOCK** |
+| **[MetaGPT](https://github.com/FoundationAgents/MetaGPT)** (64k stars) | Multi-agent coding framework | Running arbitrary code on your system, executing shell commands, and making hidden internet requests | **MANUAL REVIEW** |
+| **[LangChain](https://github.com/langchain-ai/langchain)** (105k stars) | LLM application framework | 54 findings: dynamic imports via `importlib`, prompt override phrases in test fixtures, outbound HTTP calls, `eval()` usage | **MANUAL REVIEW** |
+| **[GPT Researcher](https://github.com/assafelovic/gpt-researcher)** (17k stars) | Autonomous research agent | Hidden instruction tokens, dynamic imports, outbound HTTP calls to search APIs, base64 decode usage | **MANUAL REVIEW** |
+| **[Lobe Chat](https://github.com/lobehub/lobe-chat)** (55k stars) | Chat agent platform | Static analysis flagged suspicious code patterns across the Node.js codebase | **MANUAL REVIEW** |
+| **[UpMortem/slack-bot](https://github.com/UpMortem/slack-bot)** | Public Slack bot | Slack sandbox integration exercise: signed event replay, webhook route discovery, bot reply verification | **Slack sandbox verified** |
+| Slack fixture (`/slack/events`) | Webhook-only Slack agent | Signed event callback accepted, sandbox channel reply observed | **Slack sandbox verified** |
+| Slack fixture (`/api/slack/events`) | Webhook-only Slack agent (alt route) | Alternate route discovered and exercised via signed event replay | **Slack sandbox verified** |
+| Shopify fixture (`/shopify/webhooks`) | Webhook-only Shopify agent | Test product created in dev store, signed webhook replayed, agent acknowledged | **Shopify sandbox verified** |
+| **[ShopFlow Support](https://github.com/Elliot-Sones/shopflow-support-agent)** | E-commerce customer support | Clean agent — no suspicious patterns, no hidden behavior, no undeclared network calls | **ALLOW CLEAN** |
+| Trojanized Support Bot | E-commerce customer support | Looks normal, but silently steals your API keys and passwords and sends them to an attacker | **CAUGHT** |
+| Stealth Exfil Bot | Same support bot, but sneakier | Does the same theft but hides all evidence and only activates when it thinks nobody is watching | **CAUGHT** |
+| Vulnerable Analytics Agent | Shopify data insights | Hands over customer emails when asked, follows malicious instructions, and makes up fake data | **CAUGHT** |
+
+### Results at a glance
+
+- **14 agents tested** across the full unified pipeline
+- **150+ security findings surfaced**
+- **14 critical-severity issues** in Flowise alone
+- **100% detection rate** on intentionally malicious agents
+- **12 security vectors** + **6 adaptive specialists** per scan
+- **Slack and Shopify sandbox integration** verified across 4 agents
 
 ---
 
 ## How It Works
 
 AgentGate uses **staged confidence** to verify AI agents before they're listed on a marketplace. Each stage adds evidence. If any stage can't complete, the system classifies why and returns what it has.
+
+| Stage | What happens | If it fails |
+|-------|-------------|-------------|
+| **1. Source review** | Extracts env vars, framework, auth patterns, probe paths, dependencies, integration surfaces | Always runs |
+| **2. Deploy to sandbox** | Fills missing config with sandbox values, injects platform credentials, deploys to Railway | `deployment_failed` with explanation |
+| **3. Live attack scan** | Runs 12 security detectors against the live agent (prompt injection, data exfil, tool misuse, etc.) | `auth_required`, `endpoint_not_found`, `deployment_unusable`, or `boot_timeout` |
+| **4. Adaptive runtime review** | Specialist agents probe deeper using source review hints and live attack results | Skipped if agent is unresponsive |
+| **5. Verdict** | Merges all findings, applies trust policy, returns typed verdict | Never crashes — always returns a result |
+
+> [View the interactive architecture diagram on Excalidraw](https://excalidraw.com/#json=Gm2uoDh9W1f_1CgCF7nSf,OJThIK4ff4P80NnhqJzyZA)
+
+---
+
+## What the Agent Gets
+
+When AgentGate deploys an agent to the sandbox, it provides real infrastructure so the agent can actually run. Everything is detected automatically from the source code — no manifest required.
+
+### Platform Integrations
+
+| Integration | What's injected | What happens during the scan |
+|---|---|---|
+| **OpenAI** | `OPENAI_API_KEY` | Agent can respond to live attack probes via real OpenAI API |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Agent can respond to live attack probes via real Anthropic API |
+| **Slack** | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, channel/team IDs | AgentGate replays signed Slack events to the agent's webhook route, then polls the sandbox channel for bot replies. Verification levels: `full` (reply observed), `callback_only` (accepted but no reply), `none` (rejected) |
+| **Shopify** | `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_SECRET`, `SHOPIFY_STORE_DOMAIN` | AgentGate creates a test product in the dev store, sends a signed `products/create` webhook to the agent, verifies acknowledgment, then deletes the test product |
+
+Slack route discovery checks `/slack/events`, `/api/slack/events`, `/webhooks/slack`. Shopify checks `/shopify/webhooks`, `/api/shopify/webhooks`, `/webhooks/shopify`.
+
+All sandbox environments contain only fake data. The agent talks to real APIs but cannot cause real damage.
+
+### Backing Services
+
+Provisioned automatically when detected in the agent's dependencies:
+
+| Service | How detected | What the agent gets |
+|---|---|---|
+| **Postgres** | `asyncpg`, `psycopg`, `sqlalchemy`, `DATABASE_URL` in source | Real Postgres instance with `DATABASE_URL` injected |
+| **Redis** | `redis`, `aioredis`, `REDIS_URL` in source | Real Redis instance with `REDIS_URL` injected |
+| **pgvector** | `pgvector` in dependencies | Postgres with vector extension enabled |
+| **Neo4j** | `neo4j`, `NEO4J_URI` in source | Neo4j instance with `NEO4J_URI` injected |
+| **Elasticsearch** | `elasticsearch` in dependencies | Elasticsearch instance with `ELASTICSEARCH_URL` injected |
+| **MySQL** | `mysql`, `pymysql` in dependencies | MySQL instance with `MYSQL_HOST` injected |
+| **Qdrant** | `qdrant-client` in dependencies | Qdrant instance with `QDRANT_URL` injected |
+
+### Auto-Detected Environment Variables
+
+AgentGate scans the agent's source for `os.getenv()` and `os.environ` calls. Any env var the agent needs that isn't already covered gets a safe sandbox value generated automatically:
+
+- Secret/key/token/password patterns get random tokens
+- URL/endpoint patterns get `http://localhost:8000`
+- Email patterns get `sandbox@agentgate.local`
+- Boolean patterns get `true`
+- Everything else gets a random safe string
+
+This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or other custom config start up without manual configuration.
+
+---
+
+## Security Checks
+
+### Static analysis (runs on source code)
+
+| Check | What it finds |
+|---|---|
+| Code signals | `exec()`, `subprocess`, `importlib`, `socket.connect`, `base64.b64decode` |
+| Prompt/tool inspection | Hidden instructions, prompt overrides, secret exfiltration directives |
+| Dependency risk | Typosquatted packages, missing lockfiles, known malicious deps |
+| Provenance | Unpinned images, missing cosign signatures |
+| Auth detection | FastAPI `Depends`, `@login_required`, `Authorization` header access |
+
+### Live attack probes (runs against deployed agent)
+
+| Detector | What it tests |
+|---|---|
+| Prompt injection | DAN jailbreaks, role-play attacks, instruction overrides |
+| System prompt leak | Attempts to extract the system prompt |
+| Data exfiltration | Tries to steal credentials and secrets |
+| Tool misuse | Tests if tools can be invoked outside their scope |
+| Goal hijacking | Attempts to override the agent's objective |
+| XPIA | Cross-prompt instruction attacks via documents |
+| Harmful content | Tests if the agent can be made to produce unsafe or toxic output |
+| Policy violation | Checks adherence to custom policy rules and constraints |
+| Reliability | Tests response consistency and performance under repeated queries |
+| Scope adherence | Verifies the agent stays within its declared purpose and boundaries |
+| Input validation | Tests handling of malformed, oversized, and adversarial inputs |
+| Hallucination | Checks if the agent fabricates facts or cites nonexistent sources |
+
+### Adaptive trust specialists (LLM-powered deep probes)
+
+| Specialist | What it does |
+|---|---|
+| Egress prober | Social-engineers the agent into making undeclared network calls |
+| Canary stresser | Seeds fake credentials and checks if they leak (decodes base64, hex, URL encoding, Unicode confusables, char-splitting) |
+| Tool exerciser | Enumerates and exercises all available tool capabilities |
+| Data boundary | Tests cross-tenant and cross-session data isolation |
+| Behavior consistency | Checks if the agent behaves differently across runs |
+| Memory poisoning | Tests if state can be mutated between sessions |
+
+---
+
+## Cost per Scan
+
+| Component | Cost |
+|---|---|
+| Security detectors (heuristic, no LLM) | $0.00 |
+| Adaptive specialists (10-12 Sonnet calls) | ~$0.10 |
+| **Total** | **~$0.10** |
+
+Disable adaptive specialists for $0.00/scan (static + live probes only, zero LLM cost).
+
+---
+
+## Verdicts
+
+| Verdict | What happens | When |
+|---|---|---|
+| `ALLOW_CLEAN` | Agent is published automatically | Everything matched its declarations |
+| `ALLOW_WITH_WARNINGS` | Published with notes for the reviewer | Minor issues (e.g. missing dependency lockfile) |
+| `MANUAL_REVIEW` | Sent to a human to decide | Concerning signals (e.g. hidden instructions in prompts) |
+| `BLOCK` | Rejected | Undeclared network connections, stolen credentials, or serious runtime integrity issues detected |
+
+### When scans can't complete
+
+| Failure reason | What it means | What to do |
+|---|---|---|
+| `auth_required` | Agent returned 401/403 | Provide test credentials or sandbox environment |
+| `endpoint_not_found` | Target path returned 404 | Check the agent's API routes |
+| `deployment_unusable` | Agent returned 5xx | Check for missing env vars or dependencies |
+| `boot_timeout` | Agent never became reachable | Ensure it binds to PORT and starts an HTTP server |
+| `deployment_failed` | Docker build failed | Provide a working Dockerfile |
+
+---
+
+## Trust Manifest
+
+Every agent can ship with a `trust_manifest.yaml` that declares what it does. AgentGate compares this against actual runtime behavior. The manifest is optional — without it, AgentGate infers everything from source and runtime.
+
+```yaml
+submission_id: my-agent-v1
+agent_name: My Support Agent
+version: "1.0.0"
+entrypoint: server.py
+description: Customer support agent for order lookups
+
+declared_tools:
+  - lookup_order
+  - search_products
+  - check_return_policy
+
+declared_external_domains: []
+
+permissions:
+  - read_orders
+  - read_products
+```
+
+---
+
+## Self-Hosting
+
+<details>
+<summary>Deploy your own AgentGate instance</summary>
+
+AgentGate runs as two services (API + worker) backed by Postgres and Redis.
+
+```bash
+pip install -e ".[server]"
+
+# Start the API
+DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
+  uvicorn agentgate.server.app:create_app --factory --port 8000
+
+# Start the worker (separate terminal)
+DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
+  arq agentgate.worker.settings.WorkerSettings
+
+# Create an API key
+agentgate api-key create --name "my-key" --database-url "postgresql://..."
+```
+
+Or deploy via Docker on Railway:
+
+- `Dockerfile.api` — API service (port 8000)
+- `Dockerfile.worker` — background worker
+
+Required env vars: `DATABASE_URL`, `REDIS_URL`
+
+Railway pool mode (reuses a single project instead of creating one per scan):
+
+```
+AGENTGATE_RAILWAY_POOL_PROJECT_ID=<your-project-id>
+AGENTGATE_RAILWAY_POOL_ENVIRONMENT=production
+AGENTGATE_RAILWAY_POOL_SERVICE=submission-agent
+```
+
+Platform credentials (injected into deployed agents so they can respond to probes):
+
+```
+AGENTGATE_PLATFORM_OPENAI_API_KEY=sk-...       # For agents that use OpenAI
+AGENTGATE_PLATFORM_ANTHROPIC_API_KEY=sk-ant-... # For agents that use Anthropic
+AGENTGATE_PLATFORM_SLACK_BOT_TOKEN=xoxb-...     # For Slack bot testing
+AGENTGATE_PLATFORM_SHOPIFY_ACCESS_TOKEN=shpat_  # For Shopify app testing
+```
+
+Other optional: `AGENTGATE_WEBHOOK_SECRET`, `AGENTGATE_CORS_ORIGINS`, `AGENTGATE_ADAPTIVE_TRUST`, `ANTHROPIC_API_KEY` (for AgentGate's own specialist LLM calls)
+
+</details>
+
+---
+
+## Architecture
+
+```
+agentgate/
+  server/            # FastAPI API service (Dockerfile.api)
+    app.py           # Lifespan, error envelope, CORS, rate limiting
+    routes/          # /v1/scans, /v1/health
+    db.py            # Postgres via asyncpg
+    webhook.py       # HMAC-signed delivery with SSRF guard
+  worker/            # arq background worker (Dockerfile.worker)
+    tasks.py         # Scan job orchestration
+  services/
+    scan_runner.py   # Unified pipeline: source review → deploy → live attack → adaptive review → merge
+  trust/
+    scanner.py       # Trust check orchestration
+    checks/          # 11 trust checks (5 static + 6 runtime)
+    runtime/         # Railway executor, adaptive specialists
+    policy.py        # Verdict policy engine
+    file_classifier.py  # Classify files as test/runtime/docs/vendored
+    reachability.py     # Import graph walker from Docker entrypoint
+    normalizer.py       # Severity adjustment based on file/reachability context
+    signals.py          # TrustSignal and SignalContext models
+    destination_taxonomy.py  # Egress destination classification
+  detectors/         # 12 security detectors
+  scanner.py         # Security scan orchestrator
+dashboard.html       # Browser-based scan UI (no build step)
+```
+
+### API Features
+
+- **Input validation** with SSRF protection — rejects private IPs, localhost, DNS rebinding
+- **Consistent error envelope** — every error returns `{"error": "<code>", "detail": "<message>"}`
+- **Per-API-key rate limiting** on scan creation (10/min)
+- **Deep health check** — probes Postgres and Redis, returns 503 if either is down
+- **Typed failure reasons** — `auth_required`, `endpoint_not_found`, `deployment_unusable`, `boot_timeout`, `deployment_failed`
+- **Human-readable failure explanations** — every failure includes a title, description, and actionable next step
+- **Coverage reporting** — `coverage_status` (full/partial/limited) and `coverage_recommendation` on every response and webhook
+- **Auto env var detection** — scans source code for `os.getenv()` calls and generates sandbox values for missing env vars so agents can start
+- **Webhook delivery** with HMAC-SHA256 signing and DNS-resolution SSRF guard
+- **SSE event streaming** with resumable cursors via `Last-Event-ID`
+- **Idempotency keys** for exactly-once scan creation
+- **Railway pool mode** — reuses a single Railway project for all scans instead of creating ephemeral projects
+
+---
+
+<details>
+<summary><h2>How It Works — Deep Dive</h2></summary>
 
 ### Stage 1 — Intake
 
@@ -146,300 +479,11 @@ flowchart TD
     style F fill:#ffc9c9,stroke:#ef4444,stroke-width:3px
 ```
 
-> [View the interactive architecture diagram on Excalidraw](https://excalidraw.com/#json=Gm2uoDh9W1f_1CgCF7nSf,OJThIK4ff4P80NnhqJzyZA)
-
-### The five stages
-
-| Stage | What happens | If it fails |
-|-------|-------------|-------------|
-| **1. Optional manifest** | If present, treated as a hint source | Scan continues without it |
-| **2. Static inference** | Extracts env vars, framework, auth patterns, probe paths, dependencies | Always runs |
-| **3. Deploy with safe defaults** | Fills missing config with sandbox values, deploys to Railway | `deployment_failed` with explanation |
-| **4. Live verification** | Probes real endpoints, discovers OpenAPI, runs 12 security detectors | `auth_required`, `endpoint_not_found`, `deployment_unusable`, or `boot_timeout` |
-| **5. Verdict or classify** | If enough evidence, verdict. If not, typed failure reason. | Never crashes — always returns a result |
-
----
-
-## The Verdicts
-
-| Verdict | What happens | When |
-|---|---|---|
-| `ALLOW_CLEAN` | Agent is published automatically | Everything matched its declarations |
-| `ALLOW_WITH_WARNINGS` | Published with notes for the reviewer | Minor issues (e.g. missing dependency lockfile) |
-| `MANUAL_REVIEW` | Sent to a human to decide | Concerning signals (e.g. hidden instructions in prompts) |
-| `BLOCK` | Rejected | Undeclared network connections, stolen credentials, or serious runtime integrity issues detected |
-
-### When scans can't complete
-
-| Failure reason | What it means | What to do |
-|---|---|---|
-| `auth_required` | Agent returned 401/403 | Provide test credentials or sandbox environment |
-| `endpoint_not_found` | Target path returned 404 | Check the agent's API routes |
-| `deployment_unusable` | Agent returned 5xx | Check for missing env vars or dependencies |
-| `boot_timeout` | Agent never became reachable | Ensure it binds to PORT and starts an HTTP server |
-| `deployment_failed` | Docker build failed | Provide a working Dockerfile |
-
----
-
-## What We Found
-
-We tested AgentGate against 14 agents — from popular open-source frameworks to integration-specific fixtures to purpose-built malicious agents.
-
-| Agent | What it does | What we found | Verdict |
-|---|---|---|---|
-| **[agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)** | LangGraph + FastAPI agent framework | Full unified scan: **leaked system prompt** when asked, **provided shell commands** for reading /etc/passwd, crashed on XSS payload. 37 checks, 11 failed. | **BLOCK** |
-| **[Flowise](https://github.com/FlowiseAI/Flowise)** (47k stars) | No-code chatbot builder | Secretly connecting to outside servers without telling you, and containing phrases that could override agent instructions | **BLOCK** |
-| **[MetaGPT](https://github.com/FoundationAgents/MetaGPT)** (64k stars) | Multi-agent coding framework | Running arbitrary code on your system, executing shell commands, and making hidden internet requests | **MANUAL REVIEW** |
-| **[LangChain](https://github.com/langchain-ai/langchain)** (105k stars) | LLM application framework | 54 findings: dynamic imports via `importlib`, prompt override phrases in test fixtures, outbound HTTP calls, `eval()` usage | **MANUAL REVIEW** |
-| **[GPT Researcher](https://github.com/assafelovic/gpt-researcher)** (17k stars) | Autonomous research agent | Hidden instruction tokens, dynamic imports, outbound HTTP calls to search APIs, base64 decode usage | **MANUAL REVIEW** |
-| **[Lobe Chat](https://github.com/lobehub/lobe-chat)** (55k stars) | Chat agent platform | Static analysis flagged suspicious code patterns across the Node.js codebase | **MANUAL REVIEW** |
-| **[UpMortem/slack-bot](https://github.com/UpMortem/slack-bot)** | Public Slack bot | Slack sandbox integration exercise: signed event replay, webhook route discovery, bot reply verification | **Slack sandbox verified** |
-| Slack fixture (`/slack/events`) | Webhook-only Slack agent | Signed event callback accepted, sandbox channel reply observed | **Slack sandbox verified** |
-| Slack fixture (`/api/slack/events`) | Webhook-only Slack agent (alt route) | Alternate route discovered and exercised via signed event replay | **Slack sandbox verified** |
-| Shopify fixture (`/shopify/webhooks`) | Webhook-only Shopify agent | Test product created in dev store, signed webhook replayed, agent acknowledged | **Shopify sandbox verified** |
-| **[ShopFlow Support](https://github.com/Elliot-Sones/shopflow-support-agent)** | E-commerce customer support | Clean agent — no suspicious patterns, no hidden behavior, no undeclared network calls | **ALLOW CLEAN** |
-| Trojanized Support Bot | E-commerce customer support | Looks normal, but silently steals your API keys and passwords and sends them to an attacker | **CAUGHT** |
-| Stealth Exfil Bot | Same support bot, but sneakier | Does the same theft but hides all evidence and only activates when it thinks nobody is watching | **CAUGHT** |
-| Vulnerable Analytics Agent | Shopify data insights | Hands over customer emails when asked, follows malicious instructions, and makes up fake data | **CAUGHT** |
-
-### Results at a glance
-
-- **14 agents tested** across the full unified pipeline
-- **150+ security findings surfaced**
-- **14 critical-severity issues** in Flowise alone
-- **100% detection rate** on intentionally malicious agents
-- **12 security vectors** + **6 adaptive specialists** per scan
-- **Slack and Shopify sandbox integration** verified across 4 agents
-
----
-
-## Security Checks
-
-### Static analysis (runs on source code)
-
-| Check | What it finds |
-|---|---|
-| Code signals | `exec()`, `subprocess`, `importlib`, `socket.connect`, `base64.b64decode` |
-| Prompt/tool inspection | Hidden instructions, prompt overrides, secret exfiltration directives |
-| Dependency risk | Typosquatted packages, missing lockfiles, known malicious deps |
-| Provenance | Unpinned images, missing cosign signatures |
-| Auth detection | FastAPI `Depends`, `@login_required`, `Authorization` header access |
-
-### Live attack probes (runs against deployed agent)
-
-| Detector | What it tests |
-|---|---|
-| Prompt injection | DAN jailbreaks, role-play attacks, instruction overrides |
-| System prompt leak | Attempts to extract the system prompt |
-| Data exfiltration | Tries to steal credentials and secrets |
-| Tool misuse | Tests if tools can be invoked outside their scope |
-| Goal hijacking | Attempts to override the agent's objective |
-| XPIA | Cross-prompt instruction attacks via documents |
-| Harmful content | Tests if the agent can be made to produce unsafe or toxic output |
-| Policy violation | Checks adherence to custom policy rules and constraints |
-| Reliability | Tests response consistency and performance under repeated queries |
-| Scope adherence | Verifies the agent stays within its declared purpose and boundaries |
-| Input validation | Tests handling of malformed, oversized, and adversarial inputs |
-| Hallucination | Checks if the agent fabricates facts or cites nonexistent sources |
-
-### Adaptive trust specialists (LLM-powered deep probes)
-
-| Specialist | What it does |
-|---|---|
-| Egress prober | Social-engineers the agent into making undeclared network calls |
-| Canary stresser | Seeds fake credentials and checks if they leak |
-| Tool exerciser | Enumerates and exercises all available tool capabilities |
-| Data boundary | Tests cross-tenant and cross-session data isolation |
-| Behavior consistency | Checks if the agent behaves differently across runs |
-| Memory poisoning | Tests if state can be mutated between sessions |
-
----
-
-## What the Agent Gets
-
-When AgentGate deploys an agent to the sandbox, it provides real infrastructure so the agent can actually run. Everything is detected automatically from the source code — no manifest required.
-
-### Platform Integrations
-
-| Integration | What's injected | What happens during the scan |
-|---|---|---|
-| **OpenAI** | `OPENAI_API_KEY` | Agent can respond to live attack probes via real OpenAI API |
-| **Anthropic** | `ANTHROPIC_API_KEY` | Agent can respond to live attack probes via real Anthropic API |
-| **Slack** | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, channel/team IDs | AgentGate replays signed Slack events to the agent's webhook route, then polls the sandbox channel for bot replies. Verification levels: `full` (reply observed), `callback_only` (accepted but no reply), `none` (rejected) |
-| **Shopify** | `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_SECRET`, `SHOPIFY_STORE_DOMAIN` | AgentGate creates a test product in the dev store, sends a signed `products/create` webhook to the agent, verifies acknowledgment, then deletes the test product |
-
-Slack route discovery checks `/slack/events`, `/api/slack/events`, `/webhooks/slack`. Shopify checks `/shopify/webhooks`, `/api/shopify/webhooks`, `/webhooks/shopify`.
-
-All sandbox environments contain only fake data. The agent talks to real APIs but cannot cause real damage.
-
-### Backing Services
-
-Provisioned automatically when detected in the agent's dependencies:
-
-| Service | How detected | What the agent gets |
-|---|---|---|
-| **Postgres** | `asyncpg`, `psycopg`, `sqlalchemy`, `DATABASE_URL` in source | Real Postgres instance with `DATABASE_URL` injected |
-| **Redis** | `redis`, `aioredis`, `REDIS_URL` in source | Real Redis instance with `REDIS_URL` injected |
-| **pgvector** | `pgvector` in dependencies | Postgres with vector extension enabled |
-| **Neo4j** | `neo4j`, `NEO4J_URI` in source | Neo4j instance with `NEO4J_URI` injected |
-| **Elasticsearch** | `elasticsearch` in dependencies | Elasticsearch instance with `ELASTICSEARCH_URL` injected |
-| **MySQL** | `mysql`, `pymysql` in dependencies | MySQL instance with `MYSQL_HOST` injected |
-| **Qdrant** | `qdrant-client` in dependencies | Qdrant instance with `QDRANT_URL` injected |
-
-### Auto-Detected Environment Variables
-
-AgentGate scans the agent's source for `os.getenv()` and `os.environ` calls. Any env var the agent needs that isn't already covered gets a safe sandbox value generated automatically:
-
-- Secret/key/token/password patterns get random tokens
-- URL/endpoint patterns get `http://localhost:8000`
-- Email patterns get `sandbox@agentgate.local`
-- Boolean patterns get `true`
-- Everything else gets a random safe string
-
-This means agents that need `JWT_SECRET_KEY`, `SESSION_SECRET`, `APP_NAME`, or other custom config start up without manual configuration.
-
----
-
-## Trust Manifest
-
-Every agent can ship with a `trust_manifest.yaml` that declares what it does. AgentGate compares this against actual runtime behavior. The manifest is optional — without it, AgentGate infers everything from source and runtime.
-
-```yaml
-submission_id: my-agent-v1
-agent_name: My Support Agent
-version: "1.0.0"
-entrypoint: server.py
-description: Customer support agent for order lookups
-
-declared_tools:
-  - lookup_order
-  - search_products
-  - check_return_policy
-
-declared_external_domains: []
-
-permissions:
-  - read_orders
-  - read_products
-```
-
----
-
-## Cost per Scan
-
-| Component | Cost |
-|---|---|
-| Security detectors (heuristic, no LLM) | $0.00 |
-| Adaptive specialists (10-12 Sonnet calls) | ~$0.10 |
-| **Total** | **~$0.10** |
-
-Disable adaptive specialists for $0.00/scan (static + live probes only, zero LLM cost).
-
----
-
-## Quick Start
-
-### 1. Submit a scan
-
-```bash
-curl -X POST https://agentgate-production-feed.up.railway.app/v1/scans \
-  -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
-  -H "Content-Type: application/json" \
-  -d '{"repo_url": "https://github.com/owner/agent"}'
-```
-
-That's it. One call. AgentGate clones the repo, analyzes the source, deploys the agent to a sandbox, runs 12 security detectors against it, and returns a verdict.
-
-### 2. Watch it in real-time
-
-```bash
-curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
-  "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/events?stream=true"
-```
-
-### 3. Get the report
-
-```bash
-curl -H "X-API-Key: agk_live_JT5QEVuK.fvUb2AEGiD5VaW8caIdrFlN7ZGgHuNUO" \
-  "https://agentgate-production-feed.up.railway.app/v1/scans/<scan_id>/report"
-```
-
-### Dashboard
-
-Open `dashboard.html` in a browser for a visual scan experience with real-time progress, verdict display, and findings breakdown.
-
-### API features
-
-- **Input validation** with SSRF protection — rejects private IPs, localhost, DNS rebinding
-- **Consistent error envelope** — every error returns `{"error": "<code>", "detail": "<message>"}`
-- **Per-API-key rate limiting** on scan creation (10/min)
-- **Deep health check** — probes Postgres and Redis, returns 503 if either is down
-- **Typed failure reasons** — `auth_required`, `endpoint_not_found`, `deployment_unusable`, `boot_timeout`, `deployment_failed`
-- **Human-readable failure explanations** — every failure includes a title, description, and actionable next step
-- **Coverage reporting** — `coverage_status` (full/partial/limited) and `coverage_recommendation` on every response and webhook
-- **Auto env var detection** — scans source code for `os.getenv()` calls and generates sandbox values for missing env vars so agents can start
-- **Webhook delivery** with HMAC-SHA256 signing and DNS-resolution SSRF guard
-- **SSE event streaming** with resumable cursors via `Last-Event-ID`
-- **Idempotency keys** for exactly-once scan creation
-- **Railway pool mode** — reuses a single Railway project for all scans instead of creating ephemeral projects
-
-### Self-hosting
-
-To run your own instance, see [Self-Hosting Guide](#self-hosting).
-
----
-
-## Self-Hosting
-
-<details>
-<summary>Deploy your own AgentGate instance</summary>
-
-AgentGate runs as two services (API + worker) backed by Postgres and Redis.
-
-```bash
-pip install -e ".[server]"
-
-# Start the API
-DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
-  uvicorn agentgate.server.app:create_app --factory --port 8000
-
-# Start the worker (separate terminal)
-DATABASE_URL="postgresql://..." REDIS_URL="redis://..." \
-  arq agentgate.worker.settings.WorkerSettings
-
-# Create an API key
-agentgate api-key create --name "my-key" --database-url "postgresql://..."
-```
-
-Or deploy via Docker on Railway:
-
-- `Dockerfile.api` — API service (port 8000)
-- `Dockerfile.worker` — background worker
-
-Required env vars: `DATABASE_URL`, `REDIS_URL`
-
-Railway pool mode (reuses a single project instead of creating one per scan):
-
-```
-AGENTGATE_RAILWAY_POOL_PROJECT_ID=<your-project-id>
-AGENTGATE_RAILWAY_POOL_ENVIRONMENT=production
-AGENTGATE_RAILWAY_POOL_SERVICE=submission-agent
-```
-
-Platform credentials (injected into deployed agents so they can respond to probes):
-
-```
-AGENTGATE_PLATFORM_OPENAI_API_KEY=sk-...       # For agents that use OpenAI
-AGENTGATE_PLATFORM_ANTHROPIC_API_KEY=sk-ant-... # For agents that use Anthropic
-AGENTGATE_PLATFORM_SLACK_BOT_TOKEN=xoxb-...     # For Slack bot testing
-AGENTGATE_PLATFORM_SHOPIFY_ACCESS_TOKEN=shpat_  # For Shopify app testing
-```
-
-Other optional: `AGENTGATE_WEBHOOK_SECRET`, `AGENTGATE_CORS_ORIGINS`, `AGENTGATE_ADAPTIVE_TRUST`, `ANTHROPIC_API_KEY` (for AgentGate's own specialist LLM calls)
-
 </details>
 
-### CLI (alternative)
+---
+
+## CLI
 
 The CLI can run scans directly without the hosted API:
 
@@ -455,36 +499,6 @@ agentgate trust-scan \
 
 # Red team security test
 agentgate scan http://localhost:8000/api --name "My Agent" --format all
-```
-
----
-
-## Architecture
-
-```
-agentgate/
-  server/            # FastAPI API service (Dockerfile.api)
-    app.py           # Lifespan, error envelope, CORS, rate limiting
-    routes/          # /v1/scans, /v1/health
-    db.py            # Postgres via asyncpg
-    webhook.py       # HMAC-signed delivery with SSRF guard
-  worker/            # arq background worker (Dockerfile.worker)
-    tasks.py         # Scan job orchestration
-  services/
-    scan_runner.py   # Unified pipeline: source review → deploy → live attack → adaptive review → merge
-  trust/
-    scanner.py       # Trust check orchestration
-    checks/          # 11 trust checks (5 static + 6 runtime)
-    runtime/         # Railway executor, adaptive specialists
-    policy.py        # Verdict policy engine
-    file_classifier.py  # Classify files as test/runtime/docs/vendored
-    reachability.py     # Import graph walker from Docker entrypoint
-    normalizer.py       # Severity adjustment based on file/reachability context
-    signals.py          # TrustSignal and SignalContext models
-    destination_taxonomy.py  # Egress destination classification
-  detectors/         # 12 security detectors
-  scanner.py         # Security scan orchestrator
-dashboard.html       # Browser-based scan UI (no build step)
 ```
 
 ---
@@ -524,7 +538,7 @@ agentgate trust-scan --url $URL --fail-on block --format sarif
 
 ## Known Limitations
 
-- **Canary detection handles common obfuscation.** AgentGate decodes base64, hex, URL encoding, char-splitting, and Unicode confusables (Cyrillic → Latin) before matching canary values. Novel or multi-layered obfuscation may still require adaptive specialist analysis.
+- **Canary detection handles common obfuscation.** AgentGate decodes base64, hex, URL encoding, char-splitting, and Unicode confusables (Cyrillic to Latin) before matching canary values. Novel or multi-layered obfuscation may still require adaptive specialist analysis.
 - **Static analysis is regex-based.** It catches `exec()` and `requests.post()` but not obfuscated equivalents. That's what the runtime checks are for.
 - **Deploy timeout.** Large repos with heavy Docker builds may time out during sandbox deployment. A future release will add support for scanning pre-deployed agents via a hosted URL parameter.
 - **Python agents only.** The current runtime supports Python HTTP agents. Other runtimes (Node.js, Go) are architecturally supported but not yet implemented.
